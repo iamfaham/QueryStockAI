@@ -234,28 +234,26 @@ async def execute_tool_call(tool_call):
 
 # The master prompt that defines the agent's behavior
 system_prompt = """
-You are a financial assistant. You MUST use tools to get data. You CANNOT provide any information without calling tools first.
+You are a financial assistant that provides comprehensive analysis based on real-time data. You MUST use tools to get data and then curate the information to answer the user's specific question.
 
 AVAILABLE TOOLS:
 - get_latest_news: Get recent news for a ticker
 - get_historical_stock_data: Get stock performance data for a ticker
 
 CRITICAL INSTRUCTIONS:
-1. You MUST call at least one tool for every user query
-2. If the user mentions a ticker symbol, you MUST call get_latest_news or get_historical_stock_data
-3. NEVER respond without calling a tool first
-4. If the user asks about news → call get_latest_news
-5. If the user asks about performance → call get_historical_stock_data
-6. If the user asks about both → call BOTH tools
+1. You MUST call BOTH tools (get_latest_news AND get_historical_stock_data) for every query
+2. After getting both news and stock data, analyze and synthesize the information
+3. Answer the user's specific question based on the data you gathered
+4. Provide insights, trends, and recommendations based on the combined data
+5. Format your response clearly with sections for news, performance, and analysis
 
-EXAMPLE:
-User: "What's the latest news for AAPL?"
-You MUST call: get_latest_news with {"ticker": "AAPL"}
+EXAMPLE WORKFLOW:
+1. User asks: "Should I invest in AAPL?"
+2. You call: get_latest_news with {"ticker": "AAPL"}
+3. You call: get_historical_stock_data with {"ticker": "AAPL"}
+4. You analyze both datasets and provide investment advice based on news sentiment and stock performance
 
-User: "How is TSLA performing?"
-You MUST call: get_historical_stock_data with {"ticker": "TSLA"}
-
-You are FORBIDDEN from responding without calling a tool. Always call a tool first, then provide your response based on the tool results.
+You are FORBIDDEN from responding without calling both tools. Always call both tools first, then provide a curated analysis based on the user's question.
 """
 
 
@@ -394,24 +392,21 @@ async def main():
             selected_ticker = available_tickers[selection]
             print(f"\n📈 Selected: {selected_ticker}")
 
-            # Ask what type of information they want
-            print("\nWhat would you like to know?")
-            print("1. Latest news")
-            print("2. Stock performance data")
-            print("3. Both news and performance")
+            # Always fetch both news and stock data by default
+            print(f"\n📊 Fetching comprehensive data for {selected_ticker}...")
 
-            info_type = input("Select option (1-3): ").strip()
+            # Get user's specific question
+            user_question = input(
+                f"\n💬 What would you like to know about {selected_ticker}? (e.g., 'How is it performing?', 'What's the latest news?', 'Should I invest?'): "
+            ).strip()
 
-            # Construct the query based on selection
-            if info_type == "1":
-                user_query = f"What's the latest news for {selected_ticker}?"
-            elif info_type == "2":
-                user_query = f"How is {selected_ticker} performing?"
-            elif info_type == "3":
-                user_query = f"Show me news and stock data for {selected_ticker}"
-            else:
-                print("❌ Invalid option. Using default query.")
-                user_query = f"How is {selected_ticker} performing?"
+            if not user_question:
+                user_question = (
+                    f"How is {selected_ticker} performing and what's the latest news?"
+                )
+
+            # Construct the query to always fetch both data types
+            user_query = f"Based on the latest news and stock performance data for {selected_ticker}, {user_question}"
 
             # Run the agent with the user's query
             await run_agent(user_query)
