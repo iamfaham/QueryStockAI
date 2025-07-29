@@ -6,6 +6,7 @@ from openai import OpenAI
 from mcp.client.session import ClientSession
 from mcp.client.stdio import stdio_client
 from mcp import StdioServerParameters, types
+import yfinance as yf
 
 # Load API key from.env file
 load_dotenv()
@@ -28,6 +29,69 @@ client = OpenAI(
 
 # Global variable to store discovered tools
 discovered_tools = []
+
+
+def get_available_tickers():
+    """Hardcoded tickers for testing"""
+
+    # Fallback to 10 most popular tickers if Lookup fails
+    try:
+        print("Using fallback to 10 most popular tickers...")
+        popular_tickers = {}
+
+        # 10 most popular tickers
+        popular_ticker_list = [
+            "AAPL",
+            "MSFT",
+            "GOOGL",
+            "AMZN",
+            "TSLA",
+            "META",
+            "NVDA",
+            "BRK-B",
+            "JNJ",
+            "JPM",
+        ]
+
+        print(f"Loading {len(popular_ticker_list)} popular tickers...")
+
+        # Get company names for each ticker
+        for ticker in popular_ticker_list:
+            try:
+                ticker_obj = yf.Ticker(ticker)
+                info = ticker_obj.info
+
+                if info and (info.get("longName") or info.get("shortName")):
+                    company_name = info.get("longName", info.get("shortName", ticker))
+                    popular_tickers[ticker] = company_name
+
+            except Exception as e:
+                # Skip tickers that cause errors
+                continue
+
+        print(f"Successfully loaded {len(popular_tickers)} tickers")
+        return popular_tickers
+
+    except Exception as e:
+        print(f"Error fetching available tickers: {e}")
+        # Final fallback to basic tickers if there's an error
+        return {
+            "AAPL": "Apple Inc.",
+            "TSLA": "Tesla Inc.",
+            "MSFT": "Microsoft Corporation",
+            "GOOGL": "Alphabet Inc. (Google)",
+        }
+
+
+def search_ticker(ticker_symbol):
+    """Search for a ticker symbol and get its company name using yfinance."""
+    try:
+        ticker = yf.Ticker(ticker_symbol)
+        info = ticker.info
+        company_name = info.get("longName", info.get("shortName", ticker_symbol))
+        return company_name
+    except Exception as e:
+        return None
 
 
 async def get_news_data(ticker: str) -> str:
@@ -296,28 +360,28 @@ async def main():
         # Initialize tools
         initialize_tools()
 
-        # Predefined tickers
-        available_tickers = {"1": "AAPL", "2": "TSLA", "3": "MSFT", "4": "GOOG"}
+        # Get available tickers
+        available_tickers = get_available_tickers()
 
         print("=== QueryStockAI ===")
         print("Select a stock ticker to analyze:")
-        print("1. AAPL (Apple)")
-        print("2. TSLA (Tesla)")
-        print("3. MSFT (Microsoft)")
-        print("4. GOOG (Google)")
         print("Type 'quit' or 'exit' to stop the program.")
         print("=" * 50)
 
         while True:
             # Show ticker menu
             print("\n📊 Available Stocks:")
-            for key, ticker in available_tickers.items():
-                print(f"  {key}. {ticker}")
+            ticker_list = list(available_tickers.items())
+            for i, (ticker, name) in enumerate(ticker_list, 1):
+                print(f"  {i}. {ticker} ({name})")
+            print("  s. Search for custom ticker")
             print("  q. Quit")
 
             # Get user selection
             selection = (
-                input("\n💬 Select a stock (1-4) or type 'quit': ").strip().lower()
+                input("\n💬 Select a stock, search (s), or type 'quit': ")
+                .strip()
+                .lower()
             )
 
             # Check if user wants to exit
@@ -325,13 +389,40 @@ async def main():
                 print("👋 Goodbye!")
                 break
 
-            # Check if selection is valid
-            if selection not in available_tickers:
-                print("❌ Invalid selection. Please choose 1-4 or 'quit'.")
-                continue
+            # Handle search option
+            if selection == "s":
+                custom_ticker = (
+                    input("Enter ticker symbol (e.g., AAPL): ").strip().upper()
+                )
+                if custom_ticker:
+                    company_name = search_ticker(custom_ticker)
+                    if company_name:
+                        print(f"✅ Found: {custom_ticker} - {company_name}")
+                        # Add to available tickers temporarily
+                        available_tickers[custom_ticker] = company_name
+                        selected_ticker = custom_ticker
+                    else:
+                        print(f"❌ Could not find ticker: {custom_ticker}")
+                        continue
+                else:
+                    print("❌ Please enter a valid ticker symbol.")
+                    continue
+            else:
+                # Check if selection is valid
+                try:
+                    selection_num = int(selection)
+                    if selection_num < 1 or selection_num > len(ticker_list):
+                        print(
+                            f"❌ Invalid selection. Please choose 1-{len(ticker_list)}, 's' for search, or 'quit'."
+                        )
+                        continue
+                    selected_ticker = ticker_list[selection_num - 1][0]
+                except ValueError:
+                    print(
+                        "❌ Invalid selection. Please enter a number, 's' for search, or 'quit'."
+                    )
+                    continue
 
-            # Get the selected ticker
-            selected_ticker = available_tickers[selection]
             print(f"\n📈 Selected: {selected_ticker}")
 
             # Always fetch both news and stock data by default

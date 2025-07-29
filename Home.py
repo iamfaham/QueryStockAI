@@ -64,6 +64,103 @@ client = OpenAI(
 discovered_tools = []
 
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_available_tickers():
+    """Fetch available tickers from yfinance using the Lookup class."""
+    try:
+        # Use yfinance Lookup to get all available stocks
+        print("Fetching all available stock tickers from yfinance...")
+
+        # Create a lookup for stocks
+        lookup = yf.Lookup("stock")
+
+        # Get stock results
+        stock_results = lookup.get_stock(count=2000)  # Get up to 500 stocks
+
+        if stock_results is not None and not stock_results.empty:
+            print(f"Found {len(stock_results)} stock tickers from yfinance")
+
+            # Convert to dictionary format - use index as ticker symbol
+            tickers_dict = {}
+            for index_val, row in stock_results.iterrows():
+                # Use the index as the ticker symbol
+                ticker = str(index_val)
+
+                # Get company name from shortName column
+                name = row.get("shortName", ticker)
+
+                if ticker and name and ticker != "nan":
+                    tickers_dict[ticker] = name
+
+            print(f"Successfully loaded {len(tickers_dict)} valid tickers")
+            return tickers_dict
+        else:
+            print("No stock results found, using fallback list")
+
+    except Exception as e:
+        print(f"Error fetching tickers from yfinance Lookup: {e}")
+
+    # Fallback to 10 most popular tickers if Lookup fails
+    try:
+        print("Using fallback to 10 most popular tickers...")
+        popular_tickers = {}
+
+        # 10 most popular tickers
+        popular_ticker_list = [
+            "AAPL",
+            "MSFT",
+            "GOOGL",
+            "AMZN",
+            "TSLA",
+            "META",
+            "NVDA",
+            "BRK-B",
+            "JNJ",
+            "JPM",
+        ]
+
+        print(f"Loading {len(popular_ticker_list)} popular tickers...")
+
+        # Get company names for each ticker
+        for ticker in popular_ticker_list:
+            try:
+                ticker_obj = yf.Ticker(ticker)
+                info = ticker_obj.info
+
+                if info and (info.get("longName") or info.get("shortName")):
+                    company_name = info.get("longName", info.get("shortName", ticker))
+                    popular_tickers[ticker] = company_name
+
+            except Exception as e:
+                # Skip tickers that cause errors
+                continue
+
+        print(f"Successfully loaded {len(popular_tickers)} tickers")
+        return popular_tickers
+
+    except Exception as e:
+        st.error(f"Error fetching available tickers: {e}")
+        # Final fallback to basic tickers if there's an error
+        return {
+            "AAPL": "Apple Inc.",
+            "TSLA": "Tesla Inc.",
+            "MSFT": "Microsoft Corporation",
+            "GOOGL": "Alphabet Inc. (Google)",
+        }
+
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def search_ticker(ticker_symbol):
+    """Search for a ticker symbol and get its company name using yfinance."""
+    try:
+        ticker = yf.Ticker(ticker_symbol)
+        info = ticker.info
+        company_name = info.get("longName", info.get("shortName", ticker_symbol))
+        return company_name
+    except Exception as e:
+        return None
+
+
 async def get_news_data(ticker: str) -> str:
     """Get news data by calling the news server via MCP."""
     try:
@@ -385,10 +482,10 @@ def create_stock_chart(ticker: str):
         - **Expected Change:** ${price_change:.2f} ({price_change_pct:+.2f}%)
         - **Confidence Range:** ${confidence_lower:.2f} - ${confidence_upper:.2f} (±${confidence_range/2:.2f})
         - **Model Training Time:** {training_time:.2f}s
-        
-        ⚠️ **Disclaimer**: Stock predictions have approximately 51% accuracy. 
-        These forecasts are for informational purposes only and should not be used as 
-        the sole basis for investment decisions. Always conduct your own research 
+
+        ⚠️ **Disclaimer**: Stock predictions have approximately 51% accuracy.
+        These forecasts are for informational purposes only and should not be used as
+        the sole basis for investment decisions. Always conduct your own research
         and consider consulting with financial advisors.
         """
         )
@@ -765,22 +862,72 @@ def main():
         st.session_state.servers_tested = True
 
     # Available tickers
-    available_tickers = {
-        "AAPL": "Apple Inc.",
-        "TSLA": "Tesla Inc.",
-        "MSFT": "Microsoft Corporation",
-        "GOOG": "Alphabet Inc. (Google)",
-    }
+    with st.spinner("🔄 Loading available tickers..."):
+        available_tickers = get_available_tickers()
 
     # Sidebar for ticker selection
     st.sidebar.header("📊 Stock Selection")
-    selected_ticker = st.sidebar.selectbox(
-        "Choose a stock ticker:",
-        options=list(available_tickers.keys()),
-        format_func=lambda x: f"{x} - {available_tickers[x]}",
-        index=None,
-        placeholder="Select a ticker...",
+
+    # Add search functionality
+    st.sidebar.subheader("🔍 Search Custom Ticker")
+    custom_ticker = st.sidebar.text_input(
+        "Enter ticker symbol (e.g., AAPL, TSLA):",
+        placeholder="Enter ticker symbol...",
+        key="custom_ticker_input",
     )
+
+    # Add info button with helpful information
+    with st.sidebar.expander("ℹ️ Can't find your ticker in the list?", expanded=False):
+        st.markdown(
+            """
+        **Can't find your ticker in the list?** 
+        
+        Use this search box to check if a ticker is available:
+        
+        ✅ **How it works:**
+        - Enter any ticker symbol (e.g., AAPL, TSLA, GOOGL)
+        - If found, it will be automatically added to the dropdown
+        - You can then select it from the "Popular Stocks" list below
+        
+        ✅ **Examples:**
+        - `AAPL` → Apple Inc.
+        - `TSLA` → Tesla Inc.
+        - `MSFT` → Microsoft Corporation
+        - `GOOGL` → Alphabet Inc.
+        
+        ✅ **Tips:**
+        - Use uppercase letters for best results
+        - Most major US and international stocks are supported
+        - If not found, the ticker might not be available on Yahoo Finance
+        """
+        )
+
+    if custom_ticker:
+        custom_ticker = custom_ticker.upper().strip()
+        if custom_ticker:
+            # Search for the custom ticker
+            company_name = search_ticker(custom_ticker)
+            if company_name:
+                st.sidebar.success(f"✅ Found: {custom_ticker} - {company_name}")
+                # Add to available tickers temporarily
+                available_tickers[custom_ticker] = company_name
+            else:
+                st.sidebar.error(f"❌ Could not find ticker: {custom_ticker}")
+
+    st.sidebar.subheader("📋 Popular Stocks")
+
+    # Only show selectbox if tickers are loaded
+    if available_tickers and len(available_tickers) > 0:
+        selected_ticker = st.sidebar.selectbox(
+            "Choose a stock ticker:",
+            options=list(available_tickers.keys()),
+            format_func=lambda x: f"{x} - {available_tickers[x]}",
+            index=None,
+            placeholder="Select a ticker...",
+        )
+    else:
+        st.sidebar.error("❌ Failed to load tickers. Please refresh the page.")
+        selected_ticker = None
 
     # Clear cache when ticker changes
     if (
@@ -808,7 +955,7 @@ def main():
         2. View the interactive stock price chart
         3. Ask questions about the stock's performance, news, or investment advice
         4. The agent will fetch real-time data and provide comprehensive analysis
-        
+
         **Example questions:**
         - "How is this stock performing?"
         - "What's the latest news about this company?"

@@ -4,6 +4,7 @@ import threading
 import plotly.graph_objects as go
 from datetime import datetime
 import json
+from typing import Dict
 
 
 class ResourceMonitor:
