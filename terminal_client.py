@@ -356,7 +356,7 @@ async def main():
         # Predefined tickers
         available_tickers = {"1": "AAPL", "2": "TSLA", "3": "MSFT", "4": "GOOG"}
 
-        print("=== Financial Agent ===")
+        print("=== QueryStockAI ===")
         print("Select a stock ticker to analyze:")
         print("1. AAPL (Apple)")
         print("2. TSLA (Tesla)")

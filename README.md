@@ -1,4 +1,4 @@
-# Financial Agent
+# QueryStockAI
 
 A comprehensive financial analysis tool that provides real-time stock data and news analysis through an AI-powered chat interface.
 

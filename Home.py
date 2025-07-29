@@ -3,16 +3,37 @@ import asyncio
 import json
 import re
 import os
-import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import yfinance as yf
-from datetime import datetime, timedelta
+import time
+
+try:
+    from prophet import Prophet
+except ImportError:
+    st.error("Prophet not installed. Please run: pip install prophet")
+    Prophet = None
 from dotenv import load_dotenv
 from openai import OpenAI
 from mcp.client.session import ClientSession
 from mcp.client.stdio import stdio_client
 from mcp import StdioServerParameters, types
+
+# Import resource monitoring
+try:
+    from resource_monitor import (
+        start_resource_monitoring,
+        stop_resource_monitoring,
+        get_resource_stats,
+        create_resource_dashboard,
+        get_resource_summary,
+        export_resource_data,
+        resource_monitor,
+    )
+
+    RESOURCE_MONITORING_AVAILABLE = True
+except ImportError:
+    RESOURCE_MONITORING_AVAILABLE = False
+    st.warning("Resource monitoring not available. Install psutil: pip install psutil")
 
 # Load environment variables
 load_dotenv()
@@ -230,15 +251,222 @@ async def get_stock_data(ticker: str) -> str:
 
 
 def create_stock_chart(ticker: str):
-    """Create an interactive stock price chart for the given ticker."""
+    """Create an interactive stock price chart with Prophet predictions for the given ticker."""
     try:
-        # Get stock data
-        stock = yf.Ticker(ticker)
-        hist_data = stock.history(period="30d")
+        # Check if Prophet is available
+        if Prophet is None:
+            st.error("Prophet is not installed. Please install it with: uv add prophet")
+            return create_basic_stock_chart(ticker)
+
+        # Get stock data - 1 year for training Prophet
+        with st.spinner(f"📊 Fetching stock data for {ticker}..."):
+            stock = yf.Ticker(ticker)
+            hist_data = stock.history(period="1y")
+
+            # Track yfinance API call
+            if RESOURCE_MONITORING_AVAILABLE:
+                resource_monitor.increment_yfinance_calls()
 
         if hist_data.empty:
             st.warning(f"No data available for {ticker}")
-            return
+            return None
+
+        # Prepare data for Prophet with outlier removal
+        df = hist_data.reset_index()
+
+        # Remove outliers using IQR method for better model training
+        Q1 = df["Close"].quantile(0.25)
+        Q3 = df["Close"].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+
+        # Filter out outliers
+        df = df[(df["Close"] >= lower_bound) & (df["Close"] <= upper_bound)]
+
+        # Remove timezone information from the Date column for Prophet compatibility
+        df["ds"] = df["Date"].dt.tz_localize(
+            None
+        )  # Prophet requires timezone-naive dates
+        df["y"] = df["Close"]  # Prophet requires 'y' column for values
+
+        # Train Prophet model with optimized configuration
+        start_time = time.time()
+        with st.spinner(f"Training Prophet model for {ticker}..."):
+            # Configure Prophet model with optimized parameters
+            model = Prophet(
+                yearly_seasonality=True,
+                weekly_seasonality=True,
+                daily_seasonality=False,
+                changepoint_prior_scale=0.01,  # Reduced for smoother trends
+                seasonality_prior_scale=10.0,  # Increased seasonality strength
+                seasonality_mode="multiplicative",
+                interval_width=0.8,  # Tighter confidence intervals
+                mcmc_samples=0,  # Disable MCMC for faster training
+            )
+
+            # Add custom seasonalities for better stock patterns
+            model.add_seasonality(name="monthly", period=30.5, fourier_order=5)
+
+            model.add_seasonality(name="quarterly", period=91.25, fourier_order=8)
+
+            model.fit(df[["ds", "y"]])
+
+            # Make predictions for next 30 days
+            future = model.make_future_dataframe(periods=30)
+            forecast = model.predict(future)
+
+            # Get the forecast data for the next 30 days (future predictions only)
+            # Find the last date in historical data
+            last_historical_date = df["ds"].max()
+
+            # Add one day to ensure we start from tomorrow
+            from datetime import timedelta
+
+            tomorrow = last_historical_date + timedelta(days=1)
+
+            # Filter for only future predictions (starting from tomorrow)
+            forecast_future = forecast[forecast["ds"] >= tomorrow].copy()
+
+        # Track Prophet training time
+        training_time = time.time() - start_time
+        if RESOURCE_MONITORING_AVAILABLE:
+            resource_monitor.add_prophet_training_time(training_time)
+
+        # Create interactive chart with historical data and predictions
+        fig = go.Figure()
+
+        # Add historical price data (full year for context)
+        # Ensure we only show actual historical data, not predictions
+        # Convert timezone-aware dates to timezone-naive for comparison
+        hist_data_filtered = hist_data[
+            hist_data.index.tz_localize(None) <= last_historical_date
+        ]
+        fig.add_trace(
+            go.Scatter(
+                x=hist_data_filtered.index,
+                y=hist_data_filtered["Close"],
+                mode="lines+markers",
+                name=f"{ticker} Historical Price (Last Year)",
+                line=dict(color="#1f77b4", width=2),
+                marker=dict(size=4),
+            )
+        )
+
+        # Add Prophet predictions for next 30 days (starting from tomorrow)
+        fig.add_trace(
+            go.Scatter(
+                x=forecast_future["ds"],
+                y=forecast_future["yhat"],
+                mode="lines+markers",
+                name=f"{ticker} Future Predictions (Next 30 Days)",
+                line=dict(color="#ff7f0e", width=2, dash="dash"),
+                marker=dict(size=4),
+            )
+        )
+
+        # Add confidence intervals for future predictions
+        fig.add_trace(
+            go.Scatter(
+                x=forecast_future["ds"].tolist() + forecast_future["ds"].tolist()[::-1],
+                y=forecast_future["yhat_upper"].tolist()
+                + forecast_future["yhat_lower"].tolist()[::-1],
+                fill="toself",
+                fillcolor="rgba(255, 127, 14, 0.3)",
+                line=dict(color="rgba(255, 127, 14, 0)"),
+                name="Prediction Confidence Interval",
+                showlegend=False,
+            )
+        )
+
+        # Update layout
+        fig.update_layout(
+            title=f"{ticker} Stock Price with Next 30-Day Predictions",
+            xaxis_title="Date",
+            yaxis_title="Price ($)",
+            height=500,
+            hovermode="x unified",
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+            ),
+        )
+
+        # Update axes
+        fig.update_xaxes(
+            title_text="Date",
+            tickformat="%b %d",
+            tickangle=45,
+        )
+        fig.update_yaxes(title_text="Price ($)")
+
+        # Display prediction summary
+        current_price = hist_data["Close"].iloc[-1]
+        predicted_price_30d = forecast_future["yhat"].iloc[-1]
+        price_change = predicted_price_30d - current_price
+        price_change_pct = (price_change / current_price) * 100
+
+        # Calculate confidence interval
+        confidence_lower = forecast_future["yhat_lower"].iloc[-1]
+        confidence_upper = forecast_future["yhat_upper"].iloc[-1]
+        confidence_range = confidence_upper - confidence_lower
+
+        # Display detailed prediction information
+        col1, col2, col3 = st.columns([1, 1, 1])
+
+        with col1:
+            st.metric(
+                "Current Price",
+                f"${current_price:.2f}",
+            )
+
+        with col2:
+            st.metric(
+                "30-Day Prediction",
+                f"${predicted_price_30d:.2f}",
+                delta=f"{price_change_pct:+.2f}%",
+            )
+
+        with col3:
+            st.metric(
+                "Expected Change",
+                f"${price_change:.2f} ({price_change_pct:+.2f}%)",
+            )
+
+        # Additional prediction details
+        st.info(
+            f"""
+        **📊 30-Day Prediction Details for {ticker}:**
+        - **Current Price:** ${current_price:.2f}
+        - **Predicted Price (30 days):** ${predicted_price_30d:.2f}
+        - **Expected Change:** ${price_change:.2f} ({price_change_pct:+.2f}%)
+        - **Confidence Range:** ${confidence_lower:.2f} - ${confidence_upper:.2f} (±${confidence_range/2:.2f})
+        - **Model Training Time:** {training_time:.2f}s
+        
+        ⚠️ **Disclaimer**: Stock predictions have approximately 51% accuracy. 
+        These forecasts are for informational purposes only and should not be used as 
+        the sole basis for investment decisions. Always conduct your own research 
+        and consider consulting with financial advisors.
+        """
+        )
+
+        return fig
+
+    except Exception as e:
+        st.error(f"Error creating chart for {ticker}: {e}")
+        return create_basic_stock_chart(ticker)
+
+
+def create_basic_stock_chart(ticker: str):
+    """Create a basic stock price chart without Prophet predictions."""
+    try:
+        # Get stock data with loading state
+        with st.spinner(f"📊 Fetching basic stock data for {ticker}..."):
+            stock = yf.Ticker(ticker)
+            hist_data = stock.history(period="30d")
+
+        if hist_data.empty:
+            st.warning(f"No data available for {ticker}")
+            return None
 
         # Create simple line chart
         fig = go.Figure()
@@ -326,11 +554,32 @@ async def execute_tool_call(tool_call):
     """Execute a tool call using MCP servers."""
     try:
         tool_name = tool_call.function.name
-        arguments = json.loads(tool_call.function.arguments)
+
+        # Clean and validate the arguments JSON
+        arguments_str = tool_call.function.arguments.strip()
+
+        # Try to extract valid JSON if there's extra content
+        try:
+            arguments = json.loads(arguments_str)
+        except json.JSONDecodeError:
+            # Try to find JSON within the string
+            import re
+
+            json_match = re.search(r"\{[^{}]*\}", arguments_str)
+            if json_match:
+                try:
+                    arguments = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    st.error(f"❌ Could not parse tool arguments: {arguments_str}")
+                    return f"Error: Invalid tool arguments format"
+            else:
+                st.error(f"❌ Could not parse tool arguments: {arguments_str}")
+                return f"Error: Invalid tool arguments format"
+
         ticker = arguments.get("ticker")
 
         with st.status(
-            f"🛠️ Executing {tool_name} for {ticker}...", expanded=False
+            f"🛠️ Executing {tool_name} for {ticker}...", expanded=True
         ) as status:
             if tool_name == "get_latest_news":
                 result = await get_news_data(ticker)
@@ -353,9 +602,6 @@ async def execute_tool_call(tool_call):
             else:
                 status.update(label=f"❌ Unknown tool: {tool_name}", state="error")
                 return f"Unknown tool: {tool_name}"
-    except json.JSONDecodeError as e:
-        st.error(f"❌ Invalid tool arguments format: {e}")
-        return f"Error: Invalid tool arguments format"
     except Exception as e:
         st.error(f"❌ Error executing tool {tool_call.function.name}: {e}")
         return f"Error executing tool {tool_call.function.name}: {e}"
@@ -399,7 +645,7 @@ async def run_agent(user_query, selected_ticker):
 
     try:
         # Get initial response from the model
-        with st.spinner("🤖 Analyzing your request..."):
+        with st.spinner("🤖 Generating analysis..."):
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -438,7 +684,7 @@ async def run_agent(user_query, selected_ticker):
                 )
 
             # Get final response from the model
-            with st.spinner("🤖 Generating analysis..."):
+            with st.spinner("🤖 Finalizing analysis..."):
                 final_response = client.chat.completions.create(
                     model="openai/gpt-4o-mini",  # Try a different model
                     messages=messages,
@@ -475,16 +721,24 @@ def display_top_news(ticker: str):
             clean_text = re.sub(r"\s+", " ", clean_text).strip()
             return clean_text
 
-        # Get news data
-        google_news = gnews.GNews(language="en", country="US", period="7d")
-        search_query = f'"{ticker}" stock market news'
-        articles = google_news.get_news(search_query)
+        # Check if news is already cached
+        news_cache_key = f"news_data_{ticker}"
+        if news_cache_key in st.session_state:
+            articles = st.session_state[news_cache_key]
+        else:
+            # Get news data with loading state
+            with st.spinner(f"📰 Loading news for {ticker}..."):
+                google_news = gnews.GNews(language="en", country="US", period="7d")
+                search_query = f'"{ticker}" stock market news'
+                articles = google_news.get_news(search_query)
+                # Cache the articles
+                st.session_state[news_cache_key] = articles
 
         if not articles:
             st.info(f"No recent news found for {ticker}")
             return
 
-            # Display top 5 articles
+        # Display top 5 articles
         for i, article in enumerate(articles[:5], 1):
             title = preprocess_text(article.get("title", ""))
             url = article.get("url", "")
@@ -517,55 +771,28 @@ def test_server_availability():
     # Test news server
     news_server_path = os.path.join(current_dir, "news_server.py")
     if not os.path.exists(news_server_path):
-        st.error(f"❌ news_server.py not found at {news_server_path}")
+        print(f"❌ ERROR: news_server.py not found at {news_server_path}")
         return False
 
     # Test stock data server
     stock_server_path = os.path.join(current_dir, "stock_data_server.py")
     if not os.path.exists(stock_server_path):
-        st.error(f"❌ stock_data_server.py not found at {stock_server_path}")
+        print(f"❌ ERROR: stock_data_server.py not found at {stock_server_path}")
         return False
 
     # Test if servers can be executed by checking if they can be imported
     import sys
     import importlib.util
 
-    # Initialize session state for notifications
-    if "notifications" not in st.session_state:
-        st.session_state.notifications = []
-    if "notification_times" not in st.session_state:
-        st.session_state.notification_times = {}
-    if "servers_importable_shown" not in st.session_state:
-        st.session_state.servers_importable_shown = False
-
-    current_time = time.time()
-
-    # Clean up old notifications (older than 10 seconds)
-    st.session_state.notifications = [
-        msg
-        for msg, timestamp in zip(
-            st.session_state.notifications, st.session_state.notification_times.values()
-        )
-        if current_time - timestamp < 10
-    ]
-    st.session_state.notification_times = {
-        k: v
-        for k, v in st.session_state.notification_times.items()
-        if current_time - v < 10
-    }
-
     try:
         # Test if news_server can be imported
         spec = importlib.util.spec_from_file_location("news_server", news_server_path)
         if spec is None or spec.loader is None:
-            st.warning("⚠️ Could not load news_server.py")
+            print("⚠️ WARNING: Could not load news_server.py")
         else:
-            # Add temporary success notification only once
-            if not st.session_state.servers_importable_shown:
-                st.success("✅ news_server.py is importable")
-                st.session_state.servers_importable_shown = True
+            print("✅ SUCCESS: news_server.py is importable")
     except Exception as e:
-        st.warning(f"⚠️ Could not import news_server.py: {e}")
+        print(f"⚠️ WARNING: Could not import news_server.py: {e}")
 
     try:
         # Test if stock_data_server can be imported
@@ -573,25 +800,28 @@ def test_server_availability():
             "stock_data_server", stock_server_path
         )
         if spec is None or spec.loader is None:
-            st.warning("⚠️ Could not load stock_data_server.py")
+            print("⚠️ WARNING: Could not load stock_data_server.py")
         else:
-            # Add temporary success notification only once
-            if not st.session_state.servers_importable_shown:
-                st.success("✅ stock_data_server.py is importable")
-                st.session_state.servers_importable_shown = True
+            print("✅ SUCCESS: stock_data_server.py is importable")
     except Exception as e:
-        st.warning(f"⚠️ Could not import stock_data_server.py: {e}")
+        print(f"⚠️ WARNING: Could not import stock_data_server.py: {e}")
 
     return True
 
 
 def main():
-    st.set_page_config(page_title="Financial Agent", page_icon="📈", layout="wide")
+    st.set_page_config(page_title="QueryStockAI", page_icon="📈", layout="wide")
 
-    st.title("📈 Financial Agent")
+    st.title("📈 QueryStockAI")
     st.markdown(
         "Get comprehensive financial analysis and insights for your selected stocks."
     )
+
+    # Initialize resource monitoring
+    if RESOURCE_MONITORING_AVAILABLE:
+        if "resource_monitoring_started" not in st.session_state:
+            start_resource_monitoring()
+            st.session_state.resource_monitoring_started = True
 
     # Initialize tools
     initialize_tools()
@@ -622,6 +852,20 @@ def main():
         placeholder="Select a ticker...",
     )
 
+    # Clear cache when ticker changes
+    if (
+        "current_ticker" in st.session_state
+        and st.session_state.current_ticker != selected_ticker
+    ):
+        # Clear all cached data for the previous ticker
+        for key in list(st.session_state.keys()):
+            if key.startswith("chart_") or key.startswith("news_"):
+                del st.session_state[key]
+
+    # Update current ticker
+    if selected_ticker:
+        st.session_state.current_ticker = selected_ticker
+
     # Main content area
     if not selected_ticker:
         st.info(
@@ -647,6 +891,11 @@ def main():
             f"✅ Selected: {selected_ticker} - {available_tickers[selected_ticker]}"
         )
 
+        # Add loading state for initial page load
+        if "page_loaded" not in st.session_state:
+            with st.spinner("🔄 Loading application..."):
+                st.session_state.page_loaded = True
+
         # Stock Chart and News Section
         st.header("📈 Stock Analysis")
 
@@ -655,59 +904,90 @@ def main():
 
         with col1:
             st.subheader("📈 Stock Price Chart")
-            # Create and display the stock chart
-            with st.spinner(f"Loading chart for {selected_ticker}..."):
-                chart_fig = create_stock_chart(selected_ticker)
-                if chart_fig:
-                    st.plotly_chart(chart_fig, use_container_width=True)
-                else:
-                    st.warning(f"Could not load chart for {selected_ticker}")
+            # Cache the chart to prevent rerendering
+            chart_key = f"chart_{selected_ticker}"
+            if chart_key not in st.session_state:
+                with st.spinner(f"📊 Loading chart for {selected_ticker}..."):
+                    chart_fig = create_stock_chart(selected_ticker)
+                    if chart_fig:
+                        st.session_state[chart_key] = chart_fig
+                    else:
+                        st.session_state[chart_key] = None
+
+            # Display the cached chart
+            if st.session_state[chart_key]:
+                st.plotly_chart(st.session_state[chart_key], use_container_width=True)
+            else:
+                st.warning(f"Could not load chart for {selected_ticker}")
 
         with col2:
             st.subheader("📰 Top News")
-            # Display top news for the selected ticker
-            display_top_news(selected_ticker)
+            # Cache the news to prevent rerendering
+            news_key = f"news_{selected_ticker}"
+            if news_key not in st.session_state:
+                st.session_state[news_key] = True  # Mark as loaded
+                display_top_news(selected_ticker)
+            else:
+                # Re-display cached news without reloading
+                display_top_news(selected_ticker)
 
-        # Chat Section in a container
+        # Chat Section
         st.header("💬 Chat with Financial Agent")
 
-        # Create a container for the chat interface
-        with st.container():
-            # Initialize chat history
-            if "messages" not in st.session_state:
-                st.session_state.messages = []
+        # Initialize chat history
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
 
-            # Display chat history
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
+        # Display existing chat messages using custom styling
+        for message in st.session_state.messages:
+            if message["role"] == "user":
+                st.markdown(
+                    f"""
+                <div style="background-color: #e3f2fd; padding: 10px; border-radius: 10px; margin: 5px 0; border: 1px solid #bbdefb;">
+                    <strong>You:</strong> {message["content"]}
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"""
+                <div style=" padding: 10px; border-radius: 10px; margin: 5px 0;">
+                    <strong>Agent:</strong>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+                # Render the content as markdown for proper formatting
+                st.markdown(message["content"])
 
-            # Chat input
-            if prompt := st.chat_input(f"Ask about {selected_ticker}..."):
-                # Add user message to chat history
-                st.session_state.messages.append({"role": "user", "content": prompt})
+        # Chat input with proper loading state
+        if prompt := st.chat_input(f"Ask about {selected_ticker}...", key="chat_input"):
+            # Track streamlit request
+            if RESOURCE_MONITORING_AVAILABLE:
+                resource_monitor.increment_streamlit_requests()
 
-                # Display user message
-                with st.chat_message("user"):
-                    st.markdown(prompt)
+            # Add user message to chat history
+            st.session_state.messages.append({"role": "user", "content": prompt})
 
-                # Display assistant response
-                with st.chat_message("assistant"):
-                    with st.spinner("🤖 Analyzing..."):
-                        response = asyncio.run(run_agent(prompt, selected_ticker))
-                        st.markdown(response)
-                        st.session_state.messages.append(
-                            {"role": "assistant", "content": response}
-                        )
+            # Display assistant response with spinner above input
+            with st.spinner("🤖 Analyzing your request..."):
+                response = asyncio.run(run_agent(prompt, selected_ticker))
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": response}
+                )
 
-            # Clear chat button
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                if st.button("🗑️ Clear Chat History"):
-                    st.session_state.messages = []
-                    st.rerun()
-            with col2:
-                st.markdown("*Chat history will be maintained during your session*")
+            # Rerun to display the new message (charts and news are cached)
+            st.rerun()
+
+        # Clear chat button
+        # col1, col2 = st.columns([1, 4])
+        # with col1:
+        #     if st.button("🗑️ Clear Chat History", key="clear_button"):
+        #         st.session_state.messages = []
+        #         st.rerun()
+        # with col2:
+        #     st.markdown("*Chat history will be maintained during your session*")
 
 
 if __name__ == "__main__":
