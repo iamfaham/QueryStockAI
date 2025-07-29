@@ -1,15 +1,8 @@
 import psutil
 import time
 import threading
-import streamlit as st
-import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import os
-import sys
-import asyncio
-import yfinance as yf
-from typing import Dict, List, Optional
+from datetime import datetime
 import json
 
 

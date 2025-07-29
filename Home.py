@@ -6,6 +6,11 @@ import os
 import plotly.graph_objects as go
 import yfinance as yf
 import time
+import sys
+from datetime import timedelta
+import gnews
+from bs4 import BeautifulSoup
+import importlib.util
 
 try:
     from prophet import Prophet
@@ -22,11 +27,6 @@ from mcp import StdioServerParameters, types
 try:
     from resource_monitor import (
         start_resource_monitoring,
-        stop_resource_monitoring,
-        get_resource_stats,
-        create_resource_dashboard,
-        get_resource_summary,
-        export_resource_data,
         resource_monitor,
     )
 
@@ -64,59 +64,10 @@ client = OpenAI(
 discovered_tools = []
 
 
-def extract_ticker_from_query(query: str) -> str:
-    """Extract ticker symbol from user query."""
-    query_upper = query.upper()
-
-    # First try to find ticker in parentheses
-    paren_match = re.search(r"\(([A-Z]{1,5})\)", query_upper)
-    if paren_match:
-        return paren_match.group(1)
-
-    # Look for our predefined tickers in the query
-    predefined_tickers = ["AAPL", "TSLA", "MSFT", "GOOG"]
-    for ticker in predefined_tickers:
-        if ticker in query_upper:
-            return ticker
-
-    # Try to find any 2-5 letter uppercase sequence that might be a ticker
-    ticker_match = re.search(r"\b([A-Z]{2,5})\b", query_upper)
-    if ticker_match:
-        potential_ticker = ticker_match.group(1)
-        # Avoid common words that might be mistaken for tickers
-        if potential_ticker not in [
-            "THE",
-            "AND",
-            "FOR",
-            "HOW",
-            "WHAT",
-            "WHEN",
-            "WHERE",
-            "WHY",
-        ]:
-            return potential_ticker
-
-    return None
-
-
-def validate_ticker(ticker: str) -> bool:
-    """Validate if ticker symbol is in correct format."""
-    if not ticker:
-        return False
-    # Basic validation: 1-5 uppercase letters
-    return bool(re.match(r"^[A-Z]{1,5}$", ticker))
-
-
 async def get_news_data(ticker: str) -> str:
     """Get news data by calling the news server via MCP."""
     try:
-        # Validate ticker
-        if not validate_ticker(ticker):
-            return f"Invalid ticker symbol: {ticker}. Please use a valid stock symbol (e.g., AAPL, TSLA)."
-
         # Set up MCP server parameters
-        import os
-        import sys
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         news_server_path = os.path.join(current_dir, "news_server.py")
@@ -181,13 +132,7 @@ async def get_news_data(ticker: str) -> str:
 async def get_stock_data(ticker: str) -> str:
     """Get stock data by calling the stock server via MCP."""
     try:
-        # Validate ticker
-        if not validate_ticker(ticker):
-            return f"Invalid ticker symbol: {ticker}. Please use a valid stock symbol (e.g., AAPL, TSLA)."
-
         # Set up MCP server parameters
-        import os
-        import sys
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         stock_server_path = os.path.join(current_dir, "stock_data_server.py")
@@ -321,7 +266,6 @@ def create_stock_chart(ticker: str):
             last_historical_date = df["ds"].max()
 
             # Add one day to ensure we start from tomorrow
-            from datetime import timedelta
 
             tomorrow = last_historical_date + timedelta(days=1)
 
@@ -563,7 +507,6 @@ async def execute_tool_call(tool_call):
             arguments = json.loads(arguments_str)
         except json.JSONDecodeError:
             # Try to find JSON within the string
-            import re
 
             json_match = re.search(r"\{[^{}]*\}", arguments_str)
             if json_match:
@@ -708,18 +651,6 @@ async def run_agent(user_query, selected_ticker):
 def display_top_news(ticker: str):
     """Display top news headlines for the given ticker with clickable links."""
     try:
-        import gnews
-        from bs4 import BeautifulSoup
-        import re
-
-        def preprocess_text(text):
-            """A simple function to clean text by removing HTML and extra whitespace."""
-            if not text:
-                return ""
-            soup = BeautifulSoup(text, "html.parser")
-            clean_text = soup.get_text()
-            clean_text = re.sub(r"\s+", " ", clean_text).strip()
-            return clean_text
 
         # Check if news is already cached
         news_cache_key = f"news_data_{ticker}"
@@ -740,7 +671,11 @@ def display_top_news(ticker: str):
 
         # Display top 5 articles
         for i, article in enumerate(articles[:5], 1):
-            title = preprocess_text(article.get("title", ""))
+            # Clean the title text
+            title = article.get("title", "")
+            if title:
+                soup = BeautifulSoup(title, "html.parser")
+                title = soup.get_text().strip()
             url = article.get("url", "")
             publisher = article.get("publisher", {}).get("title", "Unknown Source")
 
@@ -762,9 +697,6 @@ def display_top_news(ticker: str):
 
 def test_server_availability():
     """Test if the MCP servers are available and can be executed."""
-    import os
-    import subprocess
-    import time
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -781,8 +713,6 @@ def test_server_availability():
         return False
 
     # Test if servers can be executed by checking if they can be imported
-    import sys
-    import importlib.util
 
     try:
         # Test if news_server can be imported

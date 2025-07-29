@@ -1,7 +1,6 @@
 import os
 import asyncio
 import json
-import re
 from dotenv import load_dotenv
 from openai import OpenAI
 from mcp.client.session import ClientSession
@@ -31,57 +30,10 @@ client = OpenAI(
 discovered_tools = []
 
 
-def extract_ticker_from_query(query: str) -> str:
-    """Extract ticker symbol from user query."""
-    query_upper = query.upper()
-
-    # First try to find ticker in parentheses
-    paren_match = re.search(r"\(([A-Z]{1,5})\)", query_upper)
-    if paren_match:
-        return paren_match.group(1)
-
-    # Look for our predefined tickers in the query
-    predefined_tickers = ["AAPL", "TSLA", "MSFT", "GOOG"]
-    for ticker in predefined_tickers:
-        if ticker in query_upper:
-            return ticker
-
-    # Try to find any 2-5 letter uppercase sequence that might be a ticker
-    ticker_match = re.search(r"\b([A-Z]{2,5})\b", query_upper)
-    if ticker_match:
-        potential_ticker = ticker_match.group(1)
-        # Avoid common words that might be mistaken for tickers
-        if potential_ticker not in [
-            "THE",
-            "AND",
-            "FOR",
-            "HOW",
-            "WHAT",
-            "WHEN",
-            "WHERE",
-            "WHY",
-        ]:
-            return potential_ticker
-
-    return None
-
-
-def validate_ticker(ticker: str) -> bool:
-    """Validate if ticker symbol is in correct format."""
-    if not ticker:
-        return False
-    # Basic validation: 1-5 uppercase letters
-    return bool(re.match(r"^[A-Z]{1,5}$", ticker))
-
-
 async def get_news_data(ticker: str) -> str:
     """Get news data by calling the news server via MCP."""
     try:
-        # Validate ticker
-        if not validate_ticker(ticker):
-            return f"Invalid ticker symbol: {ticker}. Please use a valid stock symbol (e.g., AAPL, TSLA)."
-
-            # Set up MCP server parameters
+        # Set up MCP server parameters
         server_params = StdioServerParameters(command="python", args=["news_server.py"])
 
         # Connect to the MCP server
@@ -121,10 +73,6 @@ async def get_news_data(ticker: str) -> str:
 async def get_stock_data(ticker: str) -> str:
     """Get stock data by calling the stock server via MCP."""
     try:
-        # Validate ticker
-        if not validate_ticker(ticker):
-            return f"Invalid ticker symbol: {ticker}. Please use a valid stock symbol (e.g., AAPL, TSLA)."
-
         # Set up MCP server parameters
         server_params = StdioServerParameters(
             command="python", args=["stock_data_server.py"]
@@ -258,11 +206,6 @@ You are FORBIDDEN from responding without calling both tools. Always call both t
 
 async def run_agent(user_query):
     print(f"\n🔍 User Query: {user_query}")
-
-    # Extract ticker from query for validation
-    extracted_ticker = extract_ticker_from_query(user_query)
-    if extracted_ticker:
-        print(f"📈 Detected ticker: {extracted_ticker}")
 
     messages = [
         {"role": "system", "content": system_prompt},
