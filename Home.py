@@ -12,6 +12,8 @@ import gnews
 from bs4 import BeautifulSoup
 import importlib.util
 import requests
+import holidays
+from datetime import datetime, timedelta
 
 try:
     from prophet import Prophet
@@ -206,287 +208,15 @@ def get_available_tickers():
 
         # Comprehensive list of major stocks across sectors
         fallback_ticker_list = [
-            # Technology
             "AAPL",
             "MSFT",
-            "GOOGL",
+            "GOOG",
             "AMZN",
             "META",
             "NVDA",
             "TSLA",
             "NFLX",
             "ADBE",
-            "CRM",
-            "ORCL",
-            "INTC",
-            "AMD",
-            "QCOM",
-            "AVGO",
-            "TXN",
-            "MU",
-            "ADI",
-            "KLAC",
-            "LRCX",
-            "ASML",
-            "TSM",
-            "NVDA",
-            "AMD",
-            "INTC",
-            "QCOM",
-            "AVGO",
-            "TXN",
-            "MU",
-            "ADI",
-            # Financial
-            "JPM",
-            "BAC",
-            "WFC",
-            "GS",
-            "MS",
-            "C",
-            "USB",
-            "PNC",
-            "TFC",
-            "COF",
-            "AXP",
-            "BLK",
-            "SCHW",
-            "CME",
-            "ICE",
-            "SPGI",
-            "MCO",
-            "V",
-            "MA",
-            "PYPL",
-            # Healthcare
-            "JNJ",
-            "PFE",
-            "UNH",
-            "ABBV",
-            "MRK",
-            "TMO",
-            "ABT",
-            "DHR",
-            "BMY",
-            "AMGN",
-            "GILD",
-            "CVS",
-            "CI",
-            "ANTM",
-            "HUM",
-            "CNC",
-            "WBA",
-            "CAH",
-            "MCK",
-            "ABC",
-            # Consumer
-            "PG",
-            "KO",
-            "PEP",
-            "WMT",
-            "HD",
-            "MCD",
-            "SBUX",
-            "NKE",
-            "DIS",
-            "CMCSA",
-            "VZ",
-            "T",
-            "TMUS",
-            "CHTR",
-            "CMCSA",
-            "FOXA",
-            "NWSA",
-            "PARA",
-            "WBD",
-            "NFLX",
-            # Industrial
-            "BA",
-            "CAT",
-            "GE",
-            "MMM",
-            "HON",
-            "UPS",
-            "FDX",
-            "RTX",
-            "LMT",
-            "NOC",
-            "GD",
-            "LHX",
-            "TDG",
-            "TXT",
-            "DE",
-            "CNH",
-            "AGCO",
-            "KUB",
-            "EMR",
-            "ETN",
-            # Energy
-            "XOM",
-            "CVX",
-            "COP",
-            "EOG",
-            "SLB",
-            "PSX",
-            "VLO",
-            "MPC",
-            "OXY",
-            "HAL",
-            "BKR",
-            "NOV",
-            "FTI",
-            "WMB",
-            "KMI",
-            "ENB",
-            "EPD",
-            "ET",
-            "OKE",
-            "PXD",
-            # Real Estate
-            "AMT",
-            "PLD",
-            "CCI",
-            "EQIX",
-            "DLR",
-            "PSA",
-            "O",
-            "SPG",
-            "WELL",
-            "VICI",
-            "EQR",
-            "AVB",
-            "MAA",
-            "ESS",
-            "UDR",
-            "CPT",
-            "BXP",
-            "SLG",
-            "VNO",
-            "KIM",
-            # Utilities
-            "NEE",
-            "DUK",
-            "SO",
-            "D",
-            "AEP",
-            "SRE",
-            "XEL",
-            "WEC",
-            "DTE",
-            "ED",
-            "EIX",
-            "AEE",
-            "PEG",
-            "CMS",
-            "D",
-            "AEP",
-            "SRE",
-            "XEL",
-            "WEC",
-            "DTE",
-            # Materials
-            "LIN",
-            "APD",
-            "FCX",
-            "NEM",
-            "DOW",
-            "DD",
-            "NUE",
-            "STLD",
-            "X",
-            "AA",
-            "BLL",
-            "IP",
-            "PKG",
-            "WRK",
-            "SEE",
-            "BMS",
-            "ALB",
-            "LVS",
-            "WY",
-            "VMC",
-            # Communication Services
-            "GOOGL",
-            "META",
-            "NFLX",
-            "DIS",
-            "CMCSA",
-            "VZ",
-            "T",
-            "TMUS",
-            "CHTR",
-            "FOXA",
-            "NWSA",
-            "PARA",
-            "WBD",
-            "LYV",
-            "MTCH",
-            "SNAP",
-            "TWTR",
-            "PINS",
-            "SPOT",
-            "ZM",
-            # Additional Major Companies
-            "BRK-B",
-            "BRK-A",
-            "V",
-            "MA",
-            "PYPL",
-            "SQ",
-            "COIN",
-            "HOOD",
-            "RBLX",
-            "UBER",
-            "LYFT",
-            "DASH",
-            "ABNB",
-            "EXPE",
-            "BKNG",
-            "MAR",
-            "HLT",
-            "CCL",
-            "RCL",
-            "NCLH",
-            "SBUX",
-            "MCD",
-            "YUM",
-            "CMG",
-            "DPZ",
-            "PZZA",
-            "SHAK",
-            "WING",
-            "CHWY",
-            "PETM",
-            "TSCO",
-            "HD",
-            "LOW",
-            "TGT",
-            "COST",
-            "BJ",
-            "KR",
-            "WMT",
-            "AMZN",
-            "BABA",
-            "JD",
-            "PDD",
-            "TCEHY",
-            "BIDU",
-            "NTES",
-            "NIO",
-            "XPEV",
-            "LI",
-            "XP",
-            "DIDI",
-            "UBER",
-            "LYFT",
-            "DASH",
-            "ABNB",
-            "EXPE",
-            "BKNG",
-            "MAR",
-            "HLT",
-            "CCL",
-            "RCL",
         ]
 
         print(f"Loading {len(fallback_ticker_list)} fallback tickers...")
@@ -515,7 +245,7 @@ def get_available_tickers():
             "AAPL": "Apple Inc.",
             "TSLA": "Tesla Inc.",
             "MSFT": "Microsoft Corporation",
-            "GOOGL": "Alphabet Inc. (Google)",
+            "GOOG": "Alphabet Inc. (Google)",
             "AMZN": "Amazon.com Inc.",
             "META": "Meta Platforms Inc.",
             "NVDA": "NVIDIA Corporation",
@@ -737,13 +467,41 @@ def create_stock_chart(ticker: str):
             # Get the forecast data for the next 30 days (future predictions only)
             # Find the last date in historical data
             last_historical_date = df["ds"].max()
-
-            # Add one day to ensure we start from tomorrow
-
             tomorrow = last_historical_date + timedelta(days=1)
 
             # Filter for only future predictions (starting from tomorrow)
             forecast_future = forecast[forecast["ds"] >= tomorrow].copy()
+
+            # Filter out non-trading days
+            forecast_future["is_trading_day"] = forecast_future["ds"].apply(
+                is_trading_day
+            )
+            forecast_future = forecast_future[
+                forecast_future["is_trading_day"] == True
+            ].copy()
+
+            # If we don't have enough trading days, get more predictions
+            if len(forecast_future) < 20:  # Aim for at least 20 trading days
+                # Calculate how many more days we need
+                additional_days_needed = 30 - len(forecast_future)
+                future_extended = model.make_future_dataframe(
+                    periods=30 + additional_days_needed
+                )
+                forecast_extended = model.predict(future_extended)
+
+                # Filter extended forecast for trading days
+                forecast_extended_future = forecast_extended[
+                    forecast_extended["ds"] >= tomorrow
+                ].copy()
+                forecast_extended_future["is_trading_day"] = forecast_extended_future[
+                    "ds"
+                ].apply(is_trading_day)
+                forecast_future = forecast_extended_future[
+                    forecast_extended_future["is_trading_day"] == True
+                ].copy()
+
+                # Take only the first 30 trading days
+                forecast_future = forecast_future.head(30)
 
         # Track Prophet training time
         training_time = time.time() - start_time
@@ -1166,6 +924,52 @@ def display_top_news(ticker: str):
 
     except Exception as e:
         st.error(f"Error fetching news for {ticker}: {e}")
+
+
+def is_trading_day(date):
+    """Check if a date is a trading day (not weekend or holiday)."""
+    # Check if it's a weekend
+    if date.weekday() >= 5:  # Saturday = 5, Sunday = 6
+        return False
+
+    # Check if it's a US market holiday
+    us_holidays = holidays.US()
+    if date in us_holidays:
+        return False
+
+    return True
+
+
+def get_next_trading_days(start_date, num_days):
+    """Get the next N trading days starting from start_date."""
+    trading_days = []
+    current_date = start_date
+
+    while len(trading_days) < num_days:
+        if is_trading_day(current_date):
+            trading_days.append(current_date)
+        current_date += timedelta(days=1)
+
+    return trading_days
+
+
+def create_trading_day_future_dataframe(model, periods=30, freq="D"):
+    """Create a future dataframe with only trading days."""
+    # Get the last date from the training data
+    last_date = model.history["ds"].max()
+
+    # Generate trading days
+    trading_days = []
+    current_date = last_date + timedelta(days=1)
+
+    while len(trading_days) < periods:
+        if is_trading_day(current_date):
+            trading_days.append(current_date)
+        current_date += timedelta(days=1)
+
+    # Create future dataframe with only trading days
+    future_df = pd.DataFrame({"ds": trading_days})
+    return future_df
 
 
 def test_server_availability():
