@@ -7,7 +7,7 @@ Trains Prophet model on given ticker data up to June 2025 and tests predictions 
 import yfinance as yf
 import pandas as pd
 from prophet import Prophet
-from datetime import datetime, timedelta
+from datetime import datetime
 import numpy as np
 from sklearn.metrics import (
     mean_absolute_error,

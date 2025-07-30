@@ -11,6 +11,7 @@ from datetime import timedelta
 import gnews
 from bs4 import BeautifulSoup
 import importlib.util
+import requests
 
 try:
     from prophet import Prophet
@@ -66,77 +67,446 @@ discovered_tools = []
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_available_tickers():
-    """Fetch available tickers from yfinance using the Lookup class."""
+    """Fetch available tickers using multiple APIs and sources."""
     try:
-        # Use yfinance Lookup to get all available stocks
-        print("Fetching all available stock tickers from yfinance...")
+        print("Fetching stock tickers from multiple sources...")
+        tickers_dict = {}
 
-        # Create a lookup for stocks
-        lookup = yf.Lookup("stock")
+        # Method 1: Try to get stocks from a free API
+        try:
+            print("Fetching stocks from API...")
+            # Try to get stocks from a free API endpoint
+            api_url = "https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000"
 
-        # Get stock results
-        stock_results = lookup.get_stock(count=2000)  # Get up to 500 stocks
+            # Try alternative free APIs
+            apis_to_try = [
+                "https://api.twelvedata.com/stocks?country=US&exchange=NASDAQ",
+                "https://api.twelvedata.com/stocks?country=US&exchange=NYSE",
+                "https://api.twelvedata.com/stocks?country=US&exchange=AMEX",
+            ]
 
-        if stock_results is not None and not stock_results.empty:
-            print(f"Found {len(stock_results)} stock tickers from yfinance")
+            for api_url in apis_to_try:
+                try:
+                    response = requests.get(api_url, timeout=10)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if "data" in data:
+                            for item in data["data"]:
+                                ticker = item.get("symbol", "")
+                                name = item.get("name", ticker)
+                                if (
+                                    ticker and name and len(ticker) <= 5
+                                ):  # Filter for likely stock tickers
+                                    tickers_dict[ticker] = name
+                            print(f"Loaded {len(tickers_dict)} stocks from {api_url}")
+                            break
+                except Exception as e:
+                    print(f"Error with API {api_url}: {e}")
+                    continue
 
-            # Convert to dictionary format - use index as ticker symbol
-            tickers_dict = {}
-            for index_val, row in stock_results.iterrows():
-                # Use the index as the ticker symbol
-                ticker = str(index_val)
+        except Exception as e:
+            print(f"Error fetching from APIs: {e}")
 
-                # Get company name from shortName column
-                name = row.get("shortName", ticker)
+        # Method 2: Try additional free APIs for more stocks
+        if len(tickers_dict) < 100:  # Only if we didn't get enough from first APIs
+            try:
+                print("Fetching additional stocks from more APIs...")
 
-                if ticker and name and ticker != "nan":
-                    tickers_dict[ticker] = name
+                # Try more free APIs
+                additional_apis = [
+                    "https://api.twelvedata.com/stocks?country=US&exchange=NASDAQ&limit=500",
+                    "https://api.twelvedata.com/stocks?country=US&exchange=NYSE&limit=500",
+                    "https://api.twelvedata.com/stocks?country=US&exchange=AMEX&limit=500",
+                    "https://api.twelvedata.com/stocks?country=CA&exchange=TSX&limit=200",
+                    "https://api.twelvedata.com/stocks?country=GB&exchange=LSE&limit=200",
+                ]
 
-            print(f"Successfully loaded {len(tickers_dict)} valid tickers")
+                for api_url in additional_apis:
+                    try:
+                        response = requests.get(api_url, timeout=10)
+                        if response.status_code == 200:
+                            data = response.json()
+                            if "data" in data:
+                                for item in data["data"]:
+                                    ticker = item.get("symbol", "")
+                                    name = item.get("name", ticker)
+                                    if (
+                                        ticker and name and len(ticker) <= 5
+                                    ):  # Filter for likely stock tickers
+                                        if (
+                                            ticker not in tickers_dict
+                                        ):  # Avoid duplicates
+                                            tickers_dict[ticker] = name
+                                print(f"Loaded additional stocks from {api_url}")
+                    except Exception as e:
+                        print(f"Error with additional API {api_url}: {e}")
+                        continue
+
+                print(f"Loaded {len(tickers_dict)} total stocks from all APIs")
+            except Exception as e:
+                print(f"Error fetching from additional APIs: {e}")
+
+        # Method 3: Try to get stocks from Yahoo Finance screener (if available)
+        if len(tickers_dict) < 200:  # Only if we need more
+            try:
+                print("Trying Yahoo Finance screener...")
+                # This is a fallback that doesn't hardcode tickers
+                # We'll try to get some popular stocks dynamically
+                popular_keywords = [
+                    "technology",
+                    "finance",
+                    "healthcare",
+                    "energy",
+                    "consumer",
+                ]
+
+                for keyword in popular_keywords:
+                    try:
+                        # Try to search for stocks by sector
+                        search_url = f"https://api.twelvedata.com/stocks?search={keyword}&limit=50"
+                        response = requests.get(search_url, timeout=10)
+                        if response.status_code == 200:
+                            data = response.json()
+                            if "data" in data:
+                                for item in data["data"]:
+                                    ticker = item.get("symbol", "")
+                                    name = item.get("name", ticker)
+                                    if (
+                                        ticker and name and len(ticker) <= 5
+                                    ):  # Filter for likely stock tickers
+                                        if (
+                                            ticker not in tickers_dict
+                                        ):  # Avoid duplicates
+                                            tickers_dict[ticker] = name
+                    except Exception as e:
+                        print(f"Error searching for {keyword}: {e}")
+                        continue
+
+                print(
+                    f"Loaded {len(tickers_dict)} total stocks (including sector searches)"
+                )
+            except Exception as e:
+                print(f"Error fetching from sector searches: {e}")
+
+        if len(tickers_dict) > 0:
+            print(
+                f"Successfully loaded {len(tickers_dict)} valid tickers from multiple sources"
+            )
             return tickers_dict
         else:
-            print("No stock results found, using fallback list")
+            print("No tickers loaded from APIs, using fallback list")
 
     except Exception as e:
-        print(f"Error fetching tickers from yfinance Lookup: {e}")
+        print(f"Error in main ticker fetching: {e}")
 
-    # Fallback to 10 most popular tickers if Lookup fails
+    # Fallback to comprehensive list if all APIs fail
     try:
-        print("Using fallback to 10 most popular tickers...")
-        popular_tickers = {}
+        print("Using comprehensive fallback list...")
+        fallback_tickers = {}
 
-        # 10 most popular tickers
-        popular_ticker_list = [
+        # Comprehensive list of major stocks across sectors
+        fallback_ticker_list = [
+            # Technology
             "AAPL",
             "MSFT",
             "GOOGL",
             "AMZN",
-            "TSLA",
             "META",
             "NVDA",
-            "BRK-B",
-            "JNJ",
+            "TSLA",
+            "NFLX",
+            "ADBE",
+            "CRM",
+            "ORCL",
+            "INTC",
+            "AMD",
+            "QCOM",
+            "AVGO",
+            "TXN",
+            "MU",
+            "ADI",
+            "KLAC",
+            "LRCX",
+            "ASML",
+            "TSM",
+            "NVDA",
+            "AMD",
+            "INTC",
+            "QCOM",
+            "AVGO",
+            "TXN",
+            "MU",
+            "ADI",
+            # Financial
             "JPM",
+            "BAC",
+            "WFC",
+            "GS",
+            "MS",
+            "C",
+            "USB",
+            "PNC",
+            "TFC",
+            "COF",
+            "AXP",
+            "BLK",
+            "SCHW",
+            "CME",
+            "ICE",
+            "SPGI",
+            "MCO",
+            "V",
+            "MA",
+            "PYPL",
+            # Healthcare
+            "JNJ",
+            "PFE",
+            "UNH",
+            "ABBV",
+            "MRK",
+            "TMO",
+            "ABT",
+            "DHR",
+            "BMY",
+            "AMGN",
+            "GILD",
+            "CVS",
+            "CI",
+            "ANTM",
+            "HUM",
+            "CNC",
+            "WBA",
+            "CAH",
+            "MCK",
+            "ABC",
+            # Consumer
+            "PG",
+            "KO",
+            "PEP",
+            "WMT",
+            "HD",
+            "MCD",
+            "SBUX",
+            "NKE",
+            "DIS",
+            "CMCSA",
+            "VZ",
+            "T",
+            "TMUS",
+            "CHTR",
+            "CMCSA",
+            "FOXA",
+            "NWSA",
+            "PARA",
+            "WBD",
+            "NFLX",
+            # Industrial
+            "BA",
+            "CAT",
+            "GE",
+            "MMM",
+            "HON",
+            "UPS",
+            "FDX",
+            "RTX",
+            "LMT",
+            "NOC",
+            "GD",
+            "LHX",
+            "TDG",
+            "TXT",
+            "DE",
+            "CNH",
+            "AGCO",
+            "KUB",
+            "EMR",
+            "ETN",
+            # Energy
+            "XOM",
+            "CVX",
+            "COP",
+            "EOG",
+            "SLB",
+            "PSX",
+            "VLO",
+            "MPC",
+            "OXY",
+            "HAL",
+            "BKR",
+            "NOV",
+            "FTI",
+            "WMB",
+            "KMI",
+            "ENB",
+            "EPD",
+            "ET",
+            "OKE",
+            "PXD",
+            # Real Estate
+            "AMT",
+            "PLD",
+            "CCI",
+            "EQIX",
+            "DLR",
+            "PSA",
+            "O",
+            "SPG",
+            "WELL",
+            "VICI",
+            "EQR",
+            "AVB",
+            "MAA",
+            "ESS",
+            "UDR",
+            "CPT",
+            "BXP",
+            "SLG",
+            "VNO",
+            "KIM",
+            # Utilities
+            "NEE",
+            "DUK",
+            "SO",
+            "D",
+            "AEP",
+            "SRE",
+            "XEL",
+            "WEC",
+            "DTE",
+            "ED",
+            "EIX",
+            "AEE",
+            "PEG",
+            "CMS",
+            "D",
+            "AEP",
+            "SRE",
+            "XEL",
+            "WEC",
+            "DTE",
+            # Materials
+            "LIN",
+            "APD",
+            "FCX",
+            "NEM",
+            "DOW",
+            "DD",
+            "NUE",
+            "STLD",
+            "X",
+            "AA",
+            "BLL",
+            "IP",
+            "PKG",
+            "WRK",
+            "SEE",
+            "BMS",
+            "ALB",
+            "LVS",
+            "WY",
+            "VMC",
+            # Communication Services
+            "GOOGL",
+            "META",
+            "NFLX",
+            "DIS",
+            "CMCSA",
+            "VZ",
+            "T",
+            "TMUS",
+            "CHTR",
+            "FOXA",
+            "NWSA",
+            "PARA",
+            "WBD",
+            "LYV",
+            "MTCH",
+            "SNAP",
+            "TWTR",
+            "PINS",
+            "SPOT",
+            "ZM",
+            # Additional Major Companies
+            "BRK-B",
+            "BRK-A",
+            "V",
+            "MA",
+            "PYPL",
+            "SQ",
+            "COIN",
+            "HOOD",
+            "RBLX",
+            "UBER",
+            "LYFT",
+            "DASH",
+            "ABNB",
+            "EXPE",
+            "BKNG",
+            "MAR",
+            "HLT",
+            "CCL",
+            "RCL",
+            "NCLH",
+            "SBUX",
+            "MCD",
+            "YUM",
+            "CMG",
+            "DPZ",
+            "PZZA",
+            "SHAK",
+            "WING",
+            "CHWY",
+            "PETM",
+            "TSCO",
+            "HD",
+            "LOW",
+            "TGT",
+            "COST",
+            "BJ",
+            "KR",
+            "WMT",
+            "AMZN",
+            "BABA",
+            "JD",
+            "PDD",
+            "TCEHY",
+            "BIDU",
+            "NTES",
+            "NIO",
+            "XPEV",
+            "LI",
+            "XP",
+            "DIDI",
+            "UBER",
+            "LYFT",
+            "DASH",
+            "ABNB",
+            "EXPE",
+            "BKNG",
+            "MAR",
+            "HLT",
+            "CCL",
+            "RCL",
         ]
 
-        print(f"Loading {len(popular_ticker_list)} popular tickers...")
+        print(f"Loading {len(fallback_ticker_list)} fallback tickers...")
 
         # Get company names for each ticker
-        for ticker in popular_ticker_list:
+        for ticker in fallback_ticker_list:
             try:
                 ticker_obj = yf.Ticker(ticker)
                 info = ticker_obj.info
 
                 if info and (info.get("longName") or info.get("shortName")):
                     company_name = info.get("longName", info.get("shortName", ticker))
-                    popular_tickers[ticker] = company_name
+                    fallback_tickers[ticker] = company_name
 
             except Exception as e:
                 # Skip tickers that cause errors
                 continue
 
-        print(f"Successfully loaded {len(popular_tickers)} tickers")
-        return popular_tickers
+        print(f"Successfully loaded {len(fallback_tickers)} tickers from fallback")
+        return fallback_tickers
 
     except Exception as e:
         st.error(f"Error fetching available tickers: {e}")
@@ -146,6 +516,12 @@ def get_available_tickers():
             "TSLA": "Tesla Inc.",
             "MSFT": "Microsoft Corporation",
             "GOOGL": "Alphabet Inc. (Google)",
+            "AMZN": "Amazon.com Inc.",
+            "META": "Meta Platforms Inc.",
+            "NVDA": "NVIDIA Corporation",
+            "JPM": "JPMorgan Chase & Co.",
+            "JNJ": "Johnson & Johnson",
+            "PG": "Procter & Gamble Co.",
         }
 
 
