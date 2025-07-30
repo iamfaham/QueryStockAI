@@ -13,7 +13,6 @@ from bs4 import BeautifulSoup
 import importlib.util
 import requests
 import holidays
-from datetime import datetime, timedelta
 
 try:
     from prophet import Prophet
@@ -1048,52 +1047,6 @@ def main():
     # Sidebar for ticker selection
     st.sidebar.header("📊 Stock Selection")
 
-    # Add search functionality
-    st.sidebar.subheader("🔍 Search Custom Ticker")
-    custom_ticker = st.sidebar.text_input(
-        "Enter ticker symbol (e.g., AAPL, TSLA):",
-        placeholder="Enter ticker symbol...",
-        key="custom_ticker_input",
-    )
-
-    # Add info button with helpful information
-    with st.sidebar.expander("ℹ️ Can't find your ticker in the list?", expanded=False):
-        st.markdown(
-            """
-        **Can't find your ticker in the list?** 
-        
-        Use this search box to check if a ticker is available:
-        
-        ✅ **How it works:**
-        - Enter any ticker symbol (e.g., AAPL, TSLA, GOOGL)
-        - If found, it will be automatically added to the dropdown
-        - You can then select it from the "Popular Stocks" list below
-        
-        ✅ **Examples:**
-        - `AAPL` → Apple Inc.
-        - `TSLA` → Tesla Inc.
-        - `MSFT` → Microsoft Corporation
-        - `GOOGL` → Alphabet Inc.
-        
-        ✅ **Tips:**
-        - Use uppercase letters for best results
-        - Most major US and international stocks are supported
-        - If not found, the ticker might not be available on Yahoo Finance
-        """
-        )
-
-    if custom_ticker:
-        custom_ticker = custom_ticker.upper().strip()
-        if custom_ticker:
-            # Search for the custom ticker
-            company_name = search_ticker(custom_ticker)
-            if company_name:
-                st.sidebar.success(f"✅ Found: {custom_ticker} - {company_name}")
-                # Add to available tickers temporarily
-                available_tickers[custom_ticker] = company_name
-            else:
-                st.sidebar.error(f"❌ Could not find ticker: {custom_ticker}")
-
     st.sidebar.subheader("📋 Popular Stocks")
 
     # Only show selectbox if tickers are loaded
@@ -1108,6 +1061,29 @@ def main():
     else:
         st.sidebar.error("❌ Failed to load tickers. Please refresh the page.")
         selected_ticker = None
+
+    # Add search functionality
+    st.sidebar.subheader("🔍 Search Custom Ticker")
+    custom_ticker = st.sidebar.text_input(
+        "Enter ticker symbol, if not found in above dropdown (e.g., AAPL, TSLA):",
+        placeholder="Enter ticker symbol...",
+        key="custom_ticker_input",
+    )
+
+    # Add info button with helpful information
+    if custom_ticker:
+        custom_ticker = custom_ticker.upper().strip()
+        if custom_ticker:
+            # Search for the custom ticker
+            company_name = search_ticker(custom_ticker)
+            if company_name:
+                st.sidebar.success(
+                    f"✅ Found: {custom_ticker} - {company_name} -> Added to dropdown list above."
+                )
+                # Add to available tickers temporarily
+                available_tickers[custom_ticker] = company_name
+            else:
+                st.sidebar.error(f"❌ Could not find ticker: {custom_ticker}")
 
     # Clear cache when ticker changes
     if (
