@@ -1544,15 +1544,6 @@ def main():
             # Rerun to display the new message (charts and news are cached)
             st.rerun()
 
-        # Clear chat button
-        # col1, col2 = st.columns([1, 4])
-        # with col1:
-        #     if st.button("🗑️ Clear Chat History", key="clear_button"):
-        #         st.session_state.messages = []
-        #         st.rerun()
-        # with col2:
-        #     st.markdown("*Chat history will be maintained during your session*")
-
 
 if __name__ == "__main__":
     main()
