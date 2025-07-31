@@ -1,6 +1,6 @@
 # QueryStockAI
 
-A comprehensive financial analysis tool that provides stock data, news analysis, and AI-powered insights through an interactive Streamlit web interface. Features advanced machine learning-based stock price predictions using Ridge Regression with comprehensive technical indicators.
+A comprehensive financial analysis tool that provides stock data, news analysis, and AI-powered insights through an interactive Streamlit web interface. Features advanced machine learning-based stock price predictions using Ridge Regression with comprehensive technical indicators and an AI agent which answers user's queries based on stock dayta and news sentiment.
 
 ## Features
 
@@ -108,7 +108,6 @@ A comprehensive financial analysis tool that provides stock data, news analysis,
 - `news_server.py`: MCP server for news data
 - `resource_monitor.py`: System resource monitoring
 - `pages/System_Monitor.py`: System monitoring dashboard
-- `stock_data_linear_regression.ipynb`: Jupyter notebook with original ML approach
 - `requirements.txt`: Python dependencies
 - `pyproject.toml`: Project configuration
 
@@ -170,4 +169,4 @@ A comprehensive financial analysis tool that provides stock data, news analysis,
 
 ## Disclaimer
 
-Stock predictions have approximately 80% accuracy. These forecasts are for informational purposes only and should not be used as the sole basis for investment decisions. Always conduct your own research and consider consulting with financial advisors.
+Stock predictions have approximately 70% accuracy. These forecasts are for informational purposes only and should not be used as the sole basis for investment decisions. Always conduct your own research and consider consulting with financial advisors.
