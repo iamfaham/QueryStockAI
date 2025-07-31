@@ -409,9 +409,9 @@ def calculate_rsi(data, window):
 
 
 def create_stock_chart(ticker: str):
-    """Create an interactive stock price chart with Linear Regression predictions for the given ticker."""
+    """Create an interactive stock price chart with Ridge Regression predictions for the given ticker."""
     try:
-        # Get stock data - 5 years for training Linear Regression
+        # Get stock data - 5 years for training Ridge Regression
         with st.spinner(f"📊 Fetching stock data for {ticker}..."):
             stock = yf.Ticker(ticker)
             hist_data = stock.history(period="5y")
@@ -424,7 +424,7 @@ def create_stock_chart(ticker: str):
             st.warning(f"No data available for {ticker}")
             return None
 
-        # Prepare data for Linear Regression with technical indicators
+        # Prepare data for Ridge Regression with technical indicators
         df = hist_data.reset_index()
 
         # Flatten the multi-level column index if it exists
@@ -614,9 +614,9 @@ def create_stock_chart(ticker: str):
         # Track training time
         training_time = time.time() - start_time
         if RESOURCE_MONITORING_AVAILABLE:
-            resource_monitor.add_prophet_training_time(
+            resource_monitor.add_ridge_training_time(
                 training_time
-            )  # Reuse existing method
+            )  # Updated method name
 
         # Get the best alpha value for display
         best_alpha = grid_search.best_params_["alpha"]
@@ -843,6 +843,10 @@ def create_stock_chart(ticker: str):
         # Make predictions for the next 30 trading days
         future_predictions = model.predict(X_future_scaled)
 
+        # Track ML predictions
+        if RESOURCE_MONITORING_AVAILABLE:
+            resource_monitor.increment_ml_predictions()
+
         # Create interactive chart with historical data and future predictions
         fig = go.Figure()
 
@@ -876,7 +880,7 @@ def create_stock_chart(ticker: str):
 
         # Update layout
         fig.update_layout(
-            title=f"{ticker} Stock Price with Next 30-Day Linear Regression Predictions",
+            title=f"{ticker} Stock Price with Next 30-Day Ridge Regression Predictions",
             xaxis_title="Date",
             yaxis_title="Price ($)",
             height=500,
@@ -935,9 +939,6 @@ def create_stock_chart(ticker: str):
         st.info(
             f"""
         **📊 30-Day Ridge Regression Prediction for {ticker}:**
-        - **Current Price:** ${current_price:.2f}
-        - **Predicted Price (30 days):** ${predicted_price_30d:.2f}
-        - **Expected Change:** ${price_change:.2f} ({price_change_pct:+.2f}%)
         - **Model Performance (Historical Fit):**
           - R² Score: {r2_historical:.4f} ({r2_historical*100:.2f}% accuracy)
           - Mean Squared Error: {mse_historical:.4f}
@@ -945,7 +946,6 @@ def create_stock_chart(ticker: str):
           - Cross-Validation Score: {best_score:.4f}
         - **Model Training Time:** {training_time:.2f}s
         - **Training Data:** 5 years of historical data
-        - **Features Used:** {', '.join(features)}
 
         ⚠️ **Disclaimer**: Stock predictions have approximately 70% accuracy.
         These forecasts are for informational purposes only and should not be used as
