@@ -23,8 +23,10 @@ class ResourceMonitor:
             "network_recv_mb": [],
             "process_count": [],
             "yfinance_calls": 0,
-            "prophet_training_time": 0,
+            "ridge_training_time": 0,  # Updated from prophet_training_time
             "streamlit_requests": 0,
+            "ml_predictions": 0,  # New counter for ML predictions
+            "feature_count": 35,  # Number of technical indicators used
         }
         self.start_time = None
         self.process = psutil.Process()
@@ -122,8 +124,12 @@ class ResourceMonitor:
                     else 0
                 ),
                 "yfinance_calls": self.resource_data["yfinance_calls"],
-                "prophet_training_time": self.resource_data["prophet_training_time"],
+                "ridge_training_time": self.resource_data[
+                    "ridge_training_time"
+                ],  # Updated
                 "streamlit_requests": self.resource_data["streamlit_requests"],
+                "ml_predictions": self.resource_data["ml_predictions"],  # New
+                "feature_count": self.resource_data["feature_count"],  # New
             }
         except Exception as e:
             return {"error": str(e)}
@@ -132,13 +138,17 @@ class ResourceMonitor:
         """Increment yfinance API call counter."""
         self.resource_data["yfinance_calls"] += 1
 
-    def add_prophet_training_time(self, seconds: float):
-        """Add Prophet training time."""
-        self.resource_data["prophet_training_time"] += seconds
+    def add_ridge_training_time(self, seconds: float):
+        """Add Ridge Regression training time."""
+        self.resource_data["ridge_training_time"] += seconds
 
     def increment_streamlit_requests(self):
         """Increment Streamlit request counter."""
         self.resource_data["streamlit_requests"] += 1
+
+    def increment_ml_predictions(self):
+        """Increment ML prediction counter."""
+        self.resource_data["ml_predictions"] += 1
 
     def create_resource_dashboard(self) -> go.Figure:
         """Create a comprehensive resource dashboard."""
@@ -208,7 +218,7 @@ class ResourceMonitor:
 
         # Update layout
         fig.update_layout(
-            title="System Resource Usage",
+            title="System Resource Usage - QueryStockAI with Ridge Regression",
             xaxis_title="Time",
             height=600,
             hovermode="x unified",
@@ -246,8 +256,12 @@ class ResourceMonitor:
             "total_network_sent_mb": sum(self.resource_data["network_sent_mb"]),
             "total_network_recv_mb": sum(self.resource_data["network_recv_mb"]),
             "yfinance_calls": self.resource_data["yfinance_calls"],
-            "prophet_training_time": self.resource_data["prophet_training_time"],
+            "ridge_training_time": self.resource_data["ridge_training_time"],  # Updated
             "streamlit_requests": self.resource_data["streamlit_requests"],
+            "ml_predictions": self.resource_data["ml_predictions"],  # New
+            "feature_count": self.resource_data["feature_count"],  # New
+            "ml_model": "Ridge Regression",  # New
+            "technical_indicators": self.resource_data["feature_count"],  # New
         }
 
     def export_data(self, filename: str = None):
@@ -270,6 +284,13 @@ class ResourceMonitor:
                 "network_sent_mb": self.resource_data["network_sent_mb"],
                 "network_recv_mb": self.resource_data["network_recv_mb"],
                 "process_count": self.resource_data["process_count"],
+            },
+            "ml_metrics": {  # New section
+                "model_type": "Ridge Regression",
+                "feature_count": self.resource_data["feature_count"],
+                "training_time": self.resource_data["ridge_training_time"],
+                "predictions_made": self.resource_data["ml_predictions"],
+                "data_sources": ["yfinance", "technical_indicators"],
             },
         }
 
