@@ -4,6 +4,8 @@ import threading
 import plotly.graph_objects as go
 from datetime import datetime
 import json
+import os
+import glob
 from typing import Dict
 
 
@@ -36,6 +38,10 @@ class ResourceMonitor:
         if not self.monitoring:
             self.monitoring = True
             self.start_time = datetime.now()
+
+            # Clean up old files when starting monitoring
+            self.cleanup_old_files()
+
             self.monitor_thread = threading.Thread(
                 target=self._monitor_loop, daemon=True
             )
@@ -297,7 +303,53 @@ class ResourceMonitor:
         with open(filename, "w") as f:
             json.dump(export_data, f, indent=2)
 
+        # Clean up old files after creating a new one
+        self.cleanup_old_files()
+
         return filename
+
+    def cleanup_old_files(self, max_files: int = 10, max_age_days: int = 7):
+        """Clean up old JSON files to prevent disk space issues."""
+        try:
+            # Get all resource monitor JSON files
+            pattern = "resource_monitor_*.json"
+            files = glob.glob(pattern)
+
+            if len(files) <= max_files:
+                return  # No cleanup needed
+
+            # Sort files by modification time (oldest first)
+            files.sort(key=lambda x: os.path.getmtime(x))
+
+            # Calculate cutoff time for age-based cleanup
+            cutoff_time = time.time() - (max_age_days * 24 * 60 * 60)
+
+            files_to_delete = []
+
+            # Add files that are too old
+            for file in files:
+                if os.path.getmtime(file) < cutoff_time:
+                    files_to_delete.append(file)
+
+            # Add oldest files if we still have too many
+            remaining_files = [f for f in files if f not in files_to_delete]
+            if len(remaining_files) > max_files:
+                files_to_delete.extend(remaining_files[:-max_files])
+
+            # Delete the files
+            deleted_count = 0
+            for file in files_to_delete:
+                try:
+                    os.remove(file)
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"Error deleting file {file}: {e}")
+
+            if deleted_count > 0:
+                print(f"Cleaned up {deleted_count} old resource monitor files")
+
+        except Exception as e:
+            print(f"Error during file cleanup: {e}")
 
 
 # Global monitor instance

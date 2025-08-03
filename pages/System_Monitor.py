@@ -150,11 +150,6 @@ def main():
                     st.write("• Volatility Indicators (Bollinger Bands)")
                     st.write("• Volume Analysis & Market Sentiment")
 
-            # Export data button
-            if st.button("📥 Export Resource Data"):
-                filename = export_resource_data()
-                st.success(f"Resource data exported to: {filename}")
-
         else:
             st.error(f"Error getting resource stats: {current_stats['error']}")
     else:
