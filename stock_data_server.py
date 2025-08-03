@@ -23,7 +23,8 @@ def get_historical_stock_data(ticker: str) -> str:
             return f"No stock data found for ticker {ticker}."
 
         # Return the last 5 days of data as a clean string
-        return f"Recent stock data for {ticker}:\n{hist_data.tail().to_string()}"
+        # return f"Recent stock data for {ticker}:\n{hist_data.tail().to_string()}"
+        return f"Recent stock data for {ticker}:\n{hist_data.to_string()}"
     except Exception as e:
         return f"An error occurred while fetching stock data: {e}"
 

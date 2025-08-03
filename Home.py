@@ -408,6 +408,7 @@ def calculate_rsi(data, window):
     return rsi
 
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
 def create_stock_chart(ticker: str):
     """Create an interactive stock price chart with Ridge Regression predictions for the given ticker."""
     try:
@@ -961,6 +962,7 @@ def create_stock_chart(ticker: str):
         return create_basic_stock_chart(ticker)
 
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
 def create_basic_stock_chart(ticker: str):
     """Create a basic stock price chart without Prophet predictions."""
     try:
@@ -1209,6 +1211,7 @@ async def run_agent(user_query, selected_ticker):
         return "Please try again with a different question."
 
 
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def display_top_news(ticker: str):
     """Display top news headlines for the given ticker with clickable links."""
     try:
@@ -1468,32 +1471,17 @@ def main():
 
         with col1:
             st.subheader("📈 Stock Price Chart")
-            # Cache the chart to prevent rerendering
-            chart_key = f"chart_{selected_ticker}"
-            if chart_key not in st.session_state:
-                with st.spinner(f"📊 Loading chart for {selected_ticker}..."):
-                    chart_fig = create_stock_chart(selected_ticker)
-                    if chart_fig:
-                        st.session_state[chart_key] = chart_fig
-                    else:
-                        st.session_state[chart_key] = None
-
-            # Display the cached chart
-            if st.session_state[chart_key]:
-                st.plotly_chart(st.session_state[chart_key], use_container_width=True)
+            # Always create the chart - it's cached by the function itself
+            chart_fig = create_stock_chart(selected_ticker)
+            if chart_fig:
+                st.plotly_chart(chart_fig, use_container_width=True)
             else:
                 st.warning(f"Could not load chart for {selected_ticker}")
 
         with col2:
             st.subheader("📰 Top News")
-            # Cache the news to prevent rerendering
-            news_key = f"news_{selected_ticker}"
-            if news_key not in st.session_state:
-                st.session_state[news_key] = True  # Mark as loaded
-                display_top_news(selected_ticker)
-            else:
-                # Re-display cached news without reloading
-                display_top_news(selected_ticker)
+            # Display news - it's cached by the function
+            display_top_news(selected_ticker)
 
         # Chat Section
         st.header("💬 Chat with Financial Agent")
@@ -1541,7 +1529,7 @@ def main():
                     {"role": "assistant", "content": response}
                 )
 
-            # Rerun to display the new message (charts and news are cached)
+            # Rerun to display the new message - the chart and news are cached in session state
             st.rerun()
 
 
