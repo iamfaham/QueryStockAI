@@ -12,5 +12,5 @@ restartPolicyMaxRetries = 10
 [env]
 GROQ_API_KEY = ""
 MODEL = ""
-NEWS_SERVER_URL = "http://localhost:8001/mcp"
-STOCK_SERVER_URL = "http://localhost:8002/mcp" 
+NEWS_SERVER_URL = "http://localhost:8002/mcp"
+STOCK_SERVER_URL = "http://localhost:8001/mcp" 
