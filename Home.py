@@ -862,62 +862,6 @@ def create_basic_stock_chart(ticker: str):
         return None
 
 
-async def execute_tool_call(tool_call):
-    """Execute a tool call using MCP servers."""
-    try:
-        tool_name = tool_call.function.name
-
-        # Clean and validate the arguments JSON
-        arguments_str = tool_call.function.arguments.strip()
-
-        # Try to extract valid JSON if there's extra content
-        try:
-            arguments = json.loads(arguments_str)
-        except json.JSONDecodeError:
-            # Try to find JSON within the string
-
-            json_match = re.search(r"\{[^{}]*\}", arguments_str)
-            if json_match:
-                try:
-                    arguments = json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    st.error(f"❌ Could not parse tool arguments: {arguments_str}")
-                    return f"Error: Invalid tool arguments format"
-            else:
-                st.error(f"❌ Could not parse tool arguments: {arguments_str}")
-                return f"Error: Invalid tool arguments format"
-
-        ticker = arguments.get("ticker")
-
-        with st.status(
-            f"🛠️ Executing {tool_name} for {ticker}...", expanded=True
-        ) as status:
-            if tool_name == "get_latest_news":
-                result = await get_news_data(ticker)
-                if "Error" in result or "Failed" in result:
-                    status.update(label=f"❌ {result}", state="error")
-                else:
-                    status.update(
-                        label=f"✅ {tool_name} completed for {ticker}", state="complete"
-                    )
-                return result
-            elif tool_name == "get_historical_stock_data":
-                result = await get_stock_data(ticker)
-                if "Error" in result or "Failed" in result:
-                    status.update(label=f"❌ {result}", state="error")
-                else:
-                    status.update(
-                        label=f"✅ {tool_name} completed for {ticker}", state="complete"
-                    )
-                return result
-            else:
-                status.update(label=f"❌ Unknown tool: {tool_name}", state="error")
-                return f"Unknown tool: {tool_name}"
-    except Exception as e:
-        st.error(f"❌ Error executing tool {tool_call.function.name}: {e}")
-        return f"Error executing tool {tool_call.function.name}: {e}"
-
-
 # The master prompt that defines the agent's behavior
 system_prompt = """
 You are a financial assistant that provides comprehensive analysis based on real-time data. You MUST use tools to get data and then curate the information to answer the user's specific question.
@@ -941,79 +885,6 @@ EXAMPLE WORKFLOW:
 
 You are FORBIDDEN from responding without calling both tools. Always call both tools first, then provide a curated analysis based on the user's question.
 """
-
-
-async def run_agent(user_query, selected_ticker):
-    """Run the financial agent with the given query and ticker."""
-
-    # Construct the query to always fetch both data types
-    full_query = f"Based on the latest news and stock performance data for {selected_ticker}, {user_query}"
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": full_query},
-    ]
-
-    try:
-        # Get initial response from the model
-        with st.spinner("🤖 Generating analysis..."):
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                tools=discovered_tools,
-                tool_choice="required",
-            )
-
-        if not response.choices or len(response.choices) == 0:
-            st.error("❌ Error: No response from model")
-            return
-
-        response_message = response.choices[0].message
-
-        # Truncate tool call IDs if they're too long (max 40 chars)
-        if hasattr(response_message, "tool_calls") and response_message.tool_calls:
-            for tool_call in response_message.tool_calls:
-                if len(tool_call.id) > 40:
-                    tool_call.id = tool_call.id[:40]
-
-        messages.append(response_message)
-
-        # Execute tool calls if any
-        if response_message.tool_calls:
-            st.info("🛠️ Executing data collection...")
-            for tool_call in response_message.tool_calls:
-                # Execute the tool call
-                tool_result = await execute_tool_call(tool_call)
-
-                # Add tool result to messages
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id[:40],  # Truncate to max 40 chars
-                        "content": tool_result if tool_result else "No data available",
-                    }
-                )
-
-            # Get final response from the model
-            with st.spinner("🤖 Finalizing analysis..."):
-                final_response = client.chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                )
-
-            if final_response.choices and len(final_response.choices) > 0:
-                final_content = final_response.choices[0].message.content
-                return final_content if final_content else "Empty response"
-            else:
-                return "No response generated"
-        else:
-            return (
-                response_message.content if response_message.content else "No response"
-            )
-
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
-        return "Please try again with a different question."
 
 
 async def initialize_mcp_agent(model, tools):
@@ -1628,7 +1499,7 @@ def main():
             if message["role"] == "user":
                 st.markdown(
                     f"""
-                <div style="background-color: #e3f2fd; padding: 10px; border-radius: 10px; margin: 5px 0; border: 1px solid #bbdefb;">
+                <div style="padding: 10px; border-radius: 10px; margin: 5px 0; border: 1px solid #bbdefb;">
                     <strong>You:</strong> {message["content"]}
                 </div>
                 """,
@@ -1637,7 +1508,7 @@ def main():
             else:
                 st.markdown(
                     f"""
-                <div style="background-color: #f5f5f5; padding: 10px; border-radius: 10px; margin: 5px 0; border: 1px solid #e0e0e0;">
+                <div style="padding: 10px; border-radius: 10px; margin: 5px 0; border: 1px solid #e0e0e0;">
                     <strong>Agent:</strong>
                 </div>
                 """,
