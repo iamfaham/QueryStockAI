@@ -1,12 +1,10 @@
 import streamlit as st
 import asyncio
-import json
 import re
 import os
 import plotly.graph_objects as go
 import yfinance as yf
 import time
-import sys
 from datetime import timedelta
 import gnews
 from bs4 import BeautifulSoup
@@ -20,19 +18,9 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV
 from dotenv import load_dotenv
 from sklearn.preprocessing import StandardScaler
-
-# Try different import approaches
-try:
-    from langchain_mcp_adapters.client import MultiServerMCPClient
-except ImportError:
-    try:
-        from langchain_mcp_adapters import MultiServerMCPClient
-    except ImportError:
-        # Fallback to basic MCP client
-        MultiServerMCPClient = None
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from langchain_groq import ChatGroq
-from langchain_core.tools import tool
 
 
 # Load environment variables
@@ -914,24 +902,6 @@ async def initialize_mcp_agent(model, tools):
             print(f"❌ MCP agent creation traceback: {traceback.format_exc()}")
             return None
 
-        # Test the agent with LangGraph
-        try:
-            # Use LangGraph ainvoke method for async tools
-            test_result = await agent.ainvoke(
-                {
-                    "messages": [
-                        {"role": "user", "content": "What tools do you have available?"}
-                    ]
-                }
-            )
-            print(f"🔍 Test result: {test_result}")
-        except Exception as e:
-            st.warning(f"⚠️ MCP agent test failed: {str(e)}")
-            print(f"❌ MCP agent test error: {str(e)}")
-            import traceback
-
-            print(f"❌ MCP agent test traceback: {traceback.format_exc()}")
-
         return agent
 
     except Exception as e:
@@ -944,7 +914,7 @@ async def initialize_mcp_agent(model, tools):
 
 
 async def run_agent_with_mcp(user_query: str, selected_ticker: str = None):
-    """Run the agent using LangGraph React agent"""
+    """Run the agent using LangGraph React agent (non-streaming version)"""
     try:
         # Get tools and model from session state
         if "mcp_tools" not in st.session_state or "mcp_model" not in st.session_state:
@@ -989,9 +959,6 @@ Question: {user_query} for {selected_ticker}"""
                     {"messages": [{"role": "user", "content": full_query}]}
                 )
 
-                # Debug: Log the result
-                print(f"🔍 MCP Agent Result: {result}")
-
                 # Extract the final answer from the result
                 if isinstance(result, dict) and "output" in result:
                     final_response = result["output"]
@@ -1000,53 +967,9 @@ Question: {user_query} for {selected_ticker}"""
                 else:
                     final_response = str(result)
 
-                # Debug: Print the result type and structure
-                print(f"🔍 Result type: {type(result)}")
-                if isinstance(result, dict):
-                    print(f"🔍 Result keys: {list(result.keys())}")
-                print(f"🔍 Final response type: {type(final_response)}")
-
-                # If the response contains multiple messages, extract only the final AI response
-                if "AIMessage" in final_response:
-                    # Debug: Print the response structure
-                    print(f"🔍 Response structure: {final_response[:500]}...")
-
-                    # Look for the last AIMessage with content
-                    ai_messages = re.findall(
-                        r"AIMessage\(content=\'(.*?)\',", final_response, re.DOTALL
-                    )
-                    if ai_messages:
-                        final_response = ai_messages[-1]  # Get the last AI message
-                        print(f"✅ Extracted AI message: {final_response[:100]}...")
-                    else:
-                        # Try alternative pattern without the comma
-                        ai_messages = re.findall(
-                            r"AIMessage\(content=\'(.*?)\'", final_response, re.DOTALL
-                        )
-                        if ai_messages:
-                            final_response = ai_messages[-1]
-                            print(
-                                f"✅ Extracted AI message (alt): {final_response[:100]}..."
-                            )
-                        else:
-                            print("❌ No AI messages found in response")
-                            # Try to find any content after the last ToolMessage
-                            if "ToolMessage" in final_response:
-                                # Split by ToolMessage and take the last part
-                                parts = final_response.split("ToolMessage")
-                                if len(parts) > 1:
-                                    last_part = parts[-1]
-                                    # Look for AIMessage in the last part
-                                    ai_match = re.search(
-                                        r"AIMessage\(content=\'(.*?)\'",
-                                        last_part,
-                                        re.DOTALL,
-                                    )
-                                    if ai_match:
-                                        final_response = ai_match.group(1)
-                                        print(
-                                            f"✅ Extracted from last part: {final_response[:100]}..."
-                                        )
+                # Debug: Print the raw result to see what we're getting
+                print("🔍 Raw result type:", type(result))
+                print("🔍 Raw result:", result)
 
                 # Clean up the final response to remove escaped characters
                 final_response = (
@@ -1055,112 +978,69 @@ Question: {user_query} for {selected_ticker}"""
                     .replace('\\"', '"')
                 )
 
-                # Check if response is incomplete (only shows tool calls)
-                if "[TOOL_CALLS" in final_response and (
-                    "Final Answer:" not in final_response
-                    and "Based on" not in final_response
-                ):
-                    st.warning("⚠️ Agent response incomplete - only tool calls detected")
-                    st.info("🔄 Trying to get complete response...")
-                    # Try a simpler query to get the final analysis
-                    try:
-                        simple_query = f"Provide a comprehensive analysis of {selected_ticker} based on the latest news and stock data."
-                        simple_result = await agent.ainvoke(
-                            {"messages": [{"role": "user", "content": simple_query}]}
+                # Try to extract the final analysis more simply
+                # First, try to get the last meaningful content
+                if "AIMessage" in final_response:
+                    # Look for the last AIMessage with content
+                    ai_messages = re.findall(
+                        r'AIMessage\(content="([^"]*)"', final_response, re.DOTALL
+                    )
+                    if not ai_messages:
+                        # Try single quotes
+                        ai_messages = re.findall(
+                            r"AIMessage\(content='([^']*)'", final_response, re.DOTALL
                         )
 
-                        if (
-                            isinstance(simple_result, dict)
-                            and "output" in simple_result
-                        ):
-                            simple_response = simple_result["output"]
-                        else:
-                            simple_response = str(simple_result)
+                    if ai_messages:
+                        print(f"🔍 Found {len(ai_messages)} AIMessages")
+                        for i, msg in enumerate(ai_messages):
+                            print(f"🔍 Message {i+1} length: {len(msg.strip())}")
+                            print(f"🔍 Message {i+1} preview: {msg.strip()[:100]}...")
+                            print(f"🔍 Message {i+1} starts with: {msg.strip()[:20]}")
 
-                        if len(simple_response) > 100:
-                            return simple_response
-                        else:
-                            return f"Tool execution started but final analysis incomplete. Please try again."
-                    except Exception as e2:
-                        return f"Tool execution started but final analysis failed: {str(e2)}"
-
-                # Look for the final answer section
-                if "Final Answer:" in final_response:
-                    # Extract everything after "Final Answer:"
-                    final_answer = final_response.split("Final Answer:")[-1].strip()
-                    return final_answer
-                elif "Thought:" in final_response and "Action:" in final_response:
-                    # If it contains thought process, try to extract the final analysis
-                    # Look for the last meaningful paragraph
-                    lines = final_response.split("\n")
-                    final_lines = []
-                    for line in reversed(lines):
-                        if (
-                            line.strip()
-                            and not line.startswith("Thought:")
-                            and not line.startswith("Action:")
-                            and not line.startswith("Observation:")
-                        ):
-                            final_lines.insert(0, line)
-                        elif line.strip() and (
-                            "Based on" in line
-                            or "Recommendation:" in line
-                            or "Conclusion:" in line
-                        ):
-                            final_lines.insert(0, line)
-                    if final_lines:
-                        return "\n".join(final_lines)
+                        # Always get the last AIMessage which contains the complete analysis
+                        # The last AIMessage is the final analysis, not the tool call
+                        final_response = ai_messages[-1].strip()
+                        print(f"🔍 Selected message {len(ai_messages)} (the last one)")
+                        print(f"🔍 Selected message starts with: {final_response[:50]}")
                     else:
-                        return final_response
-                else:
-                    # Always return a string as a fallback
-                    return str(final_response)
+                        # If no AIMessage found, try to extract from the raw response
+                        final_response = final_response.strip()
+
+                # Remove any remaining tool call artifacts
+                final_response = re.sub(r"<\|.*?\|>", "", final_response)
+                final_response = re.sub(
+                    r"functions\.[a-zA-Z_]+:\d+", "", final_response
+                )
+                final_response = re.sub(r'\{[^{}]*"ticker"[^{}]*\}', "", final_response)
+
+                # Remove LangGraph metadata
+                final_response = re.sub(
+                    r"\{.*?agent.*?\}", "", final_response, flags=re.DOTALL
+                )
+                final_response = re.sub(
+                    r"\{.*?tools.*?\}", "", final_response, flags=re.DOTALL
+                )
+                final_response = re.sub(
+                    r"ToolMessage.*?\]", "", final_response, flags=re.DOTALL
+                )
+                final_response = re.sub(
+                    r"additional_kwargs.*?usage_metadata.*?\}",
+                    "",
+                    final_response,
+                    flags=re.DOTALL,
+                )
+
+                # Clean up extra whitespace and formatting
+                final_response = re.sub(r"\n\s*\n", "\n\n", final_response)
+                final_response = final_response.strip()
+
+                print("🔍 Final cleaned response:", final_response)
+                return final_response
+
             except Exception as e:
                 st.error(f"❌ Error during agent execution: {str(e)}")
-                st.error(f"Error type: {type(e).__name__}")
-                import traceback
-
-                st.error(f"Full traceback: {traceback.format_exc()}")
-                # Log to console
-                print(f"❌ MCP Agent Execution Error: {str(e)}")
-                print(f"Error type: {type(e).__name__}")
-                print(f"Full traceback: {traceback.format_exc()}")
-
-                # Check if it's a TaskGroup error
-                if "TaskGroup" in str(e):
-                    st.error(
-                        "❌ TaskGroup error - this might be due to MCP server connection issues"
-                    )
-                    st.info("🔄 Trying to restart MCP agent...")
-                    # Clear the agent and try to reinitialize
-                    if "mcp_agent" in st.session_state:
-                        del st.session_state.mcp_agent
-                    return "Please try again - MCP agent will be reinitialized"
-                else:
-                    # Try a different approach - use the agent's available methods
-                    st.info("🔄 Trying alternative execution method...")
-                    try:
-                        # Try using the agent's available methods
-                        if hasattr(agent, "arun"):
-                            result = await agent.arun(full_query)
-                        elif hasattr(agent, "run"):
-                            result = await agent.run(
-                                full_query
-                            )  # Always await async methods
-                        else:
-                            result = "Agent has no available execution methods"
-                        return result
-                    except Exception as e2:
-                        st.error(f"❌ Alternative execution also failed: {str(e2)}")
-                        st.error(f"Error type: {type(e2).__name__}")
-                        import traceback
-
-                        st.error(f"Full traceback: {traceback.format_exc()}")
-                        # Log to console
-                        print(f"❌ MCP Alternative Execution Error: {str(e2)}")
-                        print(f"Error type: {type(e2).__name__}")
-                        print(f"Full traceback: {traceback.format_exc()}")
-                        return f"Error: {str(e2)}"
+                return f"Error during execution: {str(e)}"
 
     except Exception as e:
         st.error(f"❌ Error running MCP agent: {e}")
@@ -1261,50 +1141,6 @@ def create_trading_day_future_dataframe(model, periods=30, freq="D"):
     return future_df
 
 
-def test_server_availability():
-    """Test if the MCP servers are available and can be executed."""
-
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # Test news server
-    news_server_path = os.path.join(current_dir, "news_server.py")
-    if not os.path.exists(news_server_path):
-        print(f"❌ ERROR: news_server.py not found at {news_server_path}")
-        return False
-
-    # Test stock data server
-    stock_server_path = os.path.join(current_dir, "stock_data_server.py")
-    if not os.path.exists(stock_server_path):
-        print(f"❌ ERROR: stock_data_server.py not found at {stock_server_path}")
-        return False
-
-    # Test if servers can be executed by checking if they can be imported
-
-    try:
-        # Test if news_server can be imported
-        spec = importlib.util.spec_from_file_location("news_server", news_server_path)
-        if spec is None or spec.loader is None:
-            print("⚠️ WARNING: Could not load news_server.py")
-        else:
-            print("✅ SUCCESS: news_server.py is importable")
-    except Exception as e:
-        print(f"⚠️ WARNING: Could not import news_server.py: {e}")
-
-    try:
-        # Test if stock_data_server can be imported
-        spec = importlib.util.spec_from_file_location(
-            "stock_data_server", stock_server_path
-        )
-        if spec is None or spec.loader is None:
-            print("⚠️ WARNING: Could not load stock_data_server.py")
-        else:
-            print("✅ SUCCESS: stock_data_server.py is importable")
-    except Exception as e:
-        print(f"⚠️ WARNING: Could not import stock_data_server.py: {e}")
-
-    return True
-
-
 def main():
     st.set_page_config(page_title="QueryStockAI", page_icon="📈", layout="wide")
 
@@ -1369,14 +1205,6 @@ def main():
     except Exception as e:
         st.error(f"❌ Failed to initialize MCP client: {str(e)}")
         st.stop()
-
-    # Test server availability only once on startup
-    if "servers_tested" not in st.session_state:
-        st.session_state.servers_tested = False
-
-    if not st.session_state.servers_tested:
-        test_server_availability()
-        st.session_state.servers_tested = True
 
     # Available tickers
     with st.spinner("🔄 Loading available tickers..."):
