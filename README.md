@@ -99,15 +99,13 @@ A comprehensive financial analysis tool that provides stock data, news analysis,
   - News data via `gnews`
 - **AI Model**: mistral-small-3.2-24b-instruct via OpenRouter
 - **MCP Servers**: Modular servers for stock data and news
-- **Monitoring**: Real-time system resource monitoring
 
 ## Files
 
 - `Home.py`: Main Streamlit web application with ML predictions
-- `stock_data_server.py`: MCP server for stock data
-- `news_server.py`: MCP server for news data
-- `resource_monitor.py`: System resource monitoring
-- `pages/System_Monitor.py`: System monitoring dashboard
+- `Dockerfile`: Docker configuration for Railway deployment
+- `docker-compose.yml`: Local development setup
+- `railway.toml`: Railway deployment configuration
 - `requirements.txt`: Python dependencies
 - `pyproject.toml`: Project configuration
 
@@ -120,7 +118,7 @@ A comprehensive financial analysis tool that provides stock data, news analysis,
 - **scikit-learn**: Machine learning (Ridge Regression, StandardScaler, GridSearchCV)
 - **pandas**: Data manipulation
 - **numpy**: Numerical computations
-- **psutil**: System monitoring
+
 - **openai**: AI model integration
 - **fastmcp**: MCP server framework
 
@@ -165,7 +163,6 @@ A comprehensive financial analysis tool that provides stock data, news analysis,
 - Python 3.10 or higher
 - OpenRouter API key
 - Internet connection for real-time data
-- Optional: psutil for system monitoring features
 
 ## Disclaimer
 

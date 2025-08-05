@@ -4,9 +4,16 @@ from bs4 import BeautifulSoup
 import re
 
 # Initialize the MCP Server
+import os
+
+port = int(os.environ.get("PORT", "8002"))
+
 mcp = FastMCP(
     name="Financial News Server",
-    description="Provides tools and resources for fetching and analyzing financial news.",
+    description="Provides tools and resources for fetching and analyzing financial news with real-time updates via SSE.",
+    host="0.0.0.0",
+    port=port,
+    stateless_http=True,
 )
 
 
@@ -21,7 +28,7 @@ def preprocess_text(text):
 
 
 @mcp.tool()
-def get_latest_news(ticker: str) -> str:
+async def get_latest_news(ticker: str) -> str:
     """
     Fetches recent news headlines and descriptions for a specific stock ticker.
     Use this tool when a user asks for news, updates, recent events about a company or about the company's stock.
@@ -78,6 +85,9 @@ def summarize_news_sentiment(news_headlines: str) -> str:
 
 
 if __name__ == "__main__":
-    # Use stdio transport for development
-    print("News Server running!")
-    mcp.run(transport="stdio")
+    # Use streamable HTTP transport with MCP endpoint
+    print(f"News Server running on http://localhost:{port}")
+    print("MCP endpoint available at:")
+    print(f"- http://localhost:{port}/mcp")
+
+    mcp.run(transport="streamable-http")

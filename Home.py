@@ -19,50 +19,40 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV
 from dotenv import load_dotenv
-from openai import OpenAI
-from mcp.client.session import ClientSession
-from mcp.client.stdio import stdio_client
-from mcp import StdioServerParameters, types
 from sklearn.preprocessing import StandardScaler
 
+# Try different import approaches
 try:
-    from resource_monitor import (
-        start_resource_monitoring,
-        resource_monitor,
-    )
-
-    RESOURCE_MONITORING_AVAILABLE = True
+    from langchain_mcp_adapters.client import MultiServerMCPClient
 except ImportError:
-    RESOURCE_MONITORING_AVAILABLE = False
-    st.warning("Resource monitoring not available. Install psutil: pip install psutil")
+    try:
+        from langchain_mcp_adapters import MultiServerMCPClient
+    except ImportError:
+        # Fallback to basic MCP client
+        MultiServerMCPClient = None
+from langgraph.prebuilt import create_react_agent
+from langchain_groq import ChatGroq
+from langchain_core.tools import tool
+
 
 # Load environment variables
 load_dotenv()
 
 # Check if API key exists - support both .env and Streamlit secrets
-api_key = os.getenv("OPENROUTER_API_KEY") or st.secrets.get("OPENROUTER_API_KEY")
-model = os.getenv("MODEL") or st.secrets.get("MODEL")
+os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+model_name = os.getenv("MODEL") or st.secrets.get("MODEL")
 
-if not api_key:
+if not os.environ["GROQ_API_KEY"]:
     st.error(
-        "❌ Error: OPENROUTER_API_KEY not found. Please set it in your environment variables or Streamlit secrets."
+        "❌ Error: GROQ_API_KEY not found. Please set it in your environment variables or Streamlit secrets."
     )
     st.stop()
 
-if not model:
+if not model_name:
     st.error(
         "❌ Error: MODEL not found. Please set it in your environment variables or Streamlit secrets."
     )
     st.stop()
-
-# Configure the client to connect to OpenRouter
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=api_key,
-)
-
-# Global variable to store discovered tools
-discovered_tools = []
 
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -265,137 +255,6 @@ def search_ticker(ticker_symbol):
         return None
 
 
-async def get_news_data(ticker: str) -> str:
-    """Get news data by calling the news server via MCP."""
-    try:
-        # Set up MCP server parameters
-
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        news_server_path = os.path.join(current_dir, "news_server.py")
-
-        if not os.path.exists(news_server_path):
-            return f"Error: news_server.py not found at {news_server_path}"
-
-        # Use the same Python executable as the current process
-        python_executable = sys.executable
-        server_params = StdioServerParameters(
-            command=python_executable, args=[news_server_path]
-        )
-
-        # Connect to the MCP server
-        try:
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    # Initialize the session
-                    await session.initialize()
-
-                    # Call the get_latest_news tool
-                    with st.status(
-                        f"🔍 Fetching news data for {ticker}...", expanded=False
-                    ) as status:
-                        try:
-                            result = await asyncio.wait_for(
-                                session.call_tool(
-                                    "get_latest_news", {"ticker": ticker}
-                                ),
-                                timeout=30.0,  # 30 second timeout
-                            )
-                            status.update(
-                                label=f"✅ News data fetched for {ticker}",
-                                state="complete",
-                            )
-                        except asyncio.TimeoutError:
-                            status.update(
-                                label="❌ News data fetch timed out", state="error"
-                            )
-                            return f"Timeout getting news for {ticker}"
-                        except Exception as e:
-                            status.update(
-                                label=f"❌ Error fetching news: {e}", state="error"
-                            )
-                            return f"Error getting news for {ticker}: {e}"
-
-                    # Parse the result properly
-                    if result.content:
-                        for content in result.content:
-                            if isinstance(content, types.TextContent):
-                                return content.text
-
-                    return f"No news data returned for {ticker}"
-        except Exception as e:
-            st.error(f"❌ Failed to connect to news server: {e}")
-            return f"Failed to connect to news server: {e}"
-
-    except Exception as e:
-        return f"Error getting news for {ticker}: {e}"
-
-
-async def get_stock_data(ticker: str) -> str:
-    """Get stock data by calling the stock server via MCP."""
-    try:
-        # Set up MCP server parameters
-
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        stock_server_path = os.path.join(current_dir, "stock_data_server.py")
-
-        if not os.path.exists(stock_server_path):
-            return f"Error: stock_data_server.py not found at {stock_server_path}"
-
-        # Use the same Python executable as the current process
-        python_executable = sys.executable
-        server_params = StdioServerParameters(
-            command=python_executable, args=[stock_server_path]
-        )
-
-        # Connect to the MCP server
-        try:
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    # Initialize the session
-                    await session.initialize()
-
-                    # Call the get_historical_stock_data tool
-                    with st.status(
-                        f"📊 Fetching stock data for {ticker}...", expanded=False
-                    ) as status:
-                        try:
-                            result = await asyncio.wait_for(
-                                session.call_tool(
-                                    "get_historical_stock_data", {"ticker": ticker}
-                                ),
-                                timeout=30.0,  # 30 second timeout
-                            )
-                            status.update(
-                                label=f"✅ Stock data fetched for {ticker}",
-                                state="complete",
-                            )
-                        except asyncio.TimeoutError:
-                            status.update(
-                                label="❌ Stock data fetch timed out", state="error"
-                            )
-                            return f"Timeout getting stock data for {ticker}"
-                        except Exception as e:
-                            status.update(
-                                label=f"❌ Error fetching stock data: {e}",
-                                state="error",
-                            )
-                            return f"Error getting stock data for {ticker}: {e}"
-
-                    # Parse the result properly
-                    if result.content:
-                        for content in result.content:
-                            if isinstance(content, types.TextContent):
-                                return content.text
-
-                    return f"No stock data returned for {ticker}"
-        except Exception as e:
-            st.error(f"❌ Failed to connect to stock data server: {e}")
-            return f"Failed to connect to stock data server: {e}"
-
-    except Exception as e:
-        return f"Error getting stock data for {ticker}: {e}"
-
-
 def calculate_rsi(data, window):
     """Calculate RSI (Relative Strength Index) for the given data."""
     delta = data.diff()
@@ -416,10 +275,6 @@ def create_stock_chart(ticker: str):
         with st.spinner(f"📊 Fetching stock data for {ticker}..."):
             stock = yf.Ticker(ticker)
             hist_data = stock.history(period="5y")
-
-            # Track yfinance API call
-            if RESOURCE_MONITORING_AVAILABLE:
-                resource_monitor.increment_yfinance_calls()
 
         if hist_data.empty:
             st.warning(f"No data available for {ticker}")
@@ -614,10 +469,6 @@ def create_stock_chart(ticker: str):
 
         # Track training time
         training_time = time.time() - start_time
-        if RESOURCE_MONITORING_AVAILABLE:
-            resource_monitor.add_ridge_training_time(
-                training_time
-            )  # Updated method name
 
         # Get the best alpha value for display
         best_alpha = grid_search.best_params_["alpha"]
@@ -844,10 +695,6 @@ def create_stock_chart(ticker: str):
         # Make predictions for the next 30 trading days
         future_predictions = model.predict(X_future_scaled)
 
-        # Track ML predictions
-        if RESOURCE_MONITORING_AVAILABLE:
-            resource_monitor.increment_ml_predictions()
-
         # Create interactive chart with historical data and future predictions
         fig = go.Figure()
 
@@ -1015,48 +862,6 @@ def create_basic_stock_chart(ticker: str):
         return None
 
 
-def initialize_tools():
-    """Initialize the available tools."""
-    global discovered_tools
-
-    discovered_tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "get_latest_news",
-                "description": "Fetches recent news headlines and descriptions for a specific stock ticker. Use this when user asks about news, updates, or recent events about a company.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "ticker": {
-                            "type": "string",
-                            "description": "The stock ticker symbol (e.g., 'AAPL', 'GOOG', 'TSLA'). Must be a valid stock symbol.",
-                        }
-                    },
-                    "required": ["ticker"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "get_historical_stock_data",
-                "description": "Fetches recent historical stock data (Open, High, Low, Close, Volume) for a given ticker. Use this when user asks about stock performance, price data, or market performance.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "ticker": {
-                            "type": "string",
-                            "description": "The stock ticker symbol (e.g., 'AAPL', 'TSLA', 'MSFT'). Must be a valid stock symbol.",
-                        }
-                    },
-                    "required": ["ticker"],
-                },
-            },
-        },
-    ]
-
-
 async def execute_tool_call(tool_call):
     """Execute a tool call using MCP servers."""
     try:
@@ -1153,7 +958,7 @@ async def run_agent(user_query, selected_ticker):
         # Get initial response from the model
         with st.spinner("🤖 Generating analysis..."):
             response = client.chat.completions.create(
-                model=model,
+                model=model_name,
                 messages=messages,
                 tools=discovered_tools,
                 tool_choice="required",
@@ -1192,7 +997,7 @@ async def run_agent(user_query, selected_ticker):
             # Get final response from the model
             with st.spinner("🤖 Finalizing analysis..."):
                 final_response = client.chat.completions.create(
-                    model="openai/gpt-4o-mini",  # Try a different model
+                    model=model_name,
                     messages=messages,
                 )
 
@@ -1209,6 +1014,286 @@ async def run_agent(user_query, selected_ticker):
     except Exception as e:
         st.error(f"❌ Error: {e}")
         return "Please try again with a different question."
+
+
+async def initialize_mcp_agent(model, tools):
+    """Initialize the MCP agent using LangGraph React agent"""
+    try:
+        # Create MCP agent using LangGraph React agent
+        try:
+            # Bind model with system message
+            system_message = """You are a helpful financial assistant. You have access to tools that can fetch stock data and news. 
+            When asked about a stock, use the available tools to get the latest information and provide a comprehensive analysis.
+            Always be helpful and provide detailed insights based on the data you gather."""
+
+            model_with_system = model.bind(system=system_message)
+
+            # Create React agent with tools
+            agent = create_react_agent(
+                model_with_system,
+                tools,
+            )
+            print(f"✅ Created agent with {len(tools)} tools")
+
+        except Exception as e:
+            st.error(f"❌ Failed to create MCP agent: {str(e)}")
+            print(f"❌ MCP agent creation error: {str(e)}")
+            import traceback
+
+            print(f"❌ MCP agent creation traceback: {traceback.format_exc()}")
+            return None
+
+        # Test the agent with LangGraph
+        try:
+            # Use LangGraph ainvoke method for async tools
+            test_result = await agent.ainvoke(
+                {
+                    "messages": [
+                        {"role": "user", "content": "What tools do you have available?"}
+                    ]
+                }
+            )
+            print(f"🔍 Test result: {test_result}")
+        except Exception as e:
+            st.warning(f"⚠️ MCP agent test failed: {str(e)}")
+            print(f"❌ MCP agent test error: {str(e)}")
+            import traceback
+
+            print(f"❌ MCP agent test traceback: {traceback.format_exc()}")
+
+        return agent
+
+    except Exception as e:
+        st.error(f"❌ Error initializing MCP agent: {str(e)}")
+        st.error(f"Error type: {type(e).__name__}")
+        import traceback
+
+        st.error(f"Full traceback: {traceback.format_exc()}")
+        return None
+
+
+async def run_agent_with_mcp(user_query: str, selected_ticker: str = None):
+    """Run the agent using LangGraph React agent"""
+    try:
+        # Get tools and model from session state
+        if "mcp_tools" not in st.session_state or "mcp_model" not in st.session_state:
+            return "❌ MCP tools and model not initialized. Please restart the application."
+
+        tools = st.session_state.mcp_tools
+        model = st.session_state.mcp_model
+
+        # Initialize agent if not already done
+        if "mcp_agent" not in st.session_state or st.session_state.mcp_agent is None:
+            agent = await initialize_mcp_agent(model, tools)
+            if not agent:
+                return "Failed to initialize MCP agent"
+            st.session_state.mcp_agent = agent
+        else:
+            agent = st.session_state.mcp_agent
+
+        # Construct the query with system instructions
+        if selected_ticker:
+            full_query = f"""You are a financial assistant. Use the available tools to get data for {selected_ticker} and then provide a comprehensive analysis.
+
+AVAILABLE TOOLS:
+- get_latest_news: Get recent news for a ticker
+- get_historical_stock_data: Get stock performance data for a ticker
+
+INSTRUCTIONS:
+1. Call get_latest_news with {{"ticker": "{selected_ticker}"}}
+2. Call get_historical_stock_data with {{"ticker": "{selected_ticker}"}}
+3. After getting the data, provide a comprehensive analysis answering: {user_query}
+
+IMPORTANT: After calling the tools, you MUST provide a final analysis with insights, trends, and recommendations. Do not just show the tool calls.
+
+Question: {user_query} for {selected_ticker}"""
+        else:
+            full_query = user_query
+
+        # Run the agent with LangGraph
+        with st.spinner("🤖 Processing with MCP agent..."):
+            try:
+                # Use LangGraph ainvoke method for async tools
+                result = await agent.ainvoke(
+                    {"messages": [{"role": "user", "content": full_query}]}
+                )
+
+                # Debug: Log the result
+                print(f"🔍 MCP Agent Result: {result}")
+
+                # Extract the final answer from the result
+                if isinstance(result, dict) and "output" in result:
+                    final_response = result["output"]
+                elif isinstance(result, str):
+                    final_response = result
+                else:
+                    final_response = str(result)
+
+                # Debug: Print the result type and structure
+                print(f"🔍 Result type: {type(result)}")
+                if isinstance(result, dict):
+                    print(f"🔍 Result keys: {list(result.keys())}")
+                print(f"🔍 Final response type: {type(final_response)}")
+
+                # If the response contains multiple messages, extract only the final AI response
+                if "AIMessage" in final_response:
+                    # Debug: Print the response structure
+                    print(f"🔍 Response structure: {final_response[:500]}...")
+
+                    # Look for the last AIMessage with content
+                    ai_messages = re.findall(
+                        r"AIMessage\(content=\'(.*?)\',", final_response, re.DOTALL
+                    )
+                    if ai_messages:
+                        final_response = ai_messages[-1]  # Get the last AI message
+                        print(f"✅ Extracted AI message: {final_response[:100]}...")
+                    else:
+                        # Try alternative pattern without the comma
+                        ai_messages = re.findall(
+                            r"AIMessage\(content=\'(.*?)\'", final_response, re.DOTALL
+                        )
+                        if ai_messages:
+                            final_response = ai_messages[-1]
+                            print(
+                                f"✅ Extracted AI message (alt): {final_response[:100]}..."
+                            )
+                        else:
+                            print("❌ No AI messages found in response")
+                            # Try to find any content after the last ToolMessage
+                            if "ToolMessage" in final_response:
+                                # Split by ToolMessage and take the last part
+                                parts = final_response.split("ToolMessage")
+                                if len(parts) > 1:
+                                    last_part = parts[-1]
+                                    # Look for AIMessage in the last part
+                                    ai_match = re.search(
+                                        r"AIMessage\(content=\'(.*?)\'",
+                                        last_part,
+                                        re.DOTALL,
+                                    )
+                                    if ai_match:
+                                        final_response = ai_match.group(1)
+                                        print(
+                                            f"✅ Extracted from last part: {final_response[:100]}..."
+                                        )
+
+                # Clean up the final response to remove escaped characters
+                final_response = (
+                    final_response.replace("\\n", "\n")
+                    .replace("\\'", "'")
+                    .replace('\\"', '"')
+                )
+
+                # Check if response is incomplete (only shows tool calls)
+                if "[TOOL_CALLS" in final_response and (
+                    "Final Answer:" not in final_response
+                    and "Based on" not in final_response
+                ):
+                    st.warning("⚠️ Agent response incomplete - only tool calls detected")
+                    st.info("🔄 Trying to get complete response...")
+                    # Try a simpler query to get the final analysis
+                    try:
+                        simple_query = f"Provide a comprehensive analysis of {selected_ticker} based on the latest news and stock data."
+                        simple_result = await agent.ainvoke(
+                            {"messages": [{"role": "user", "content": simple_query}]}
+                        )
+
+                        if (
+                            isinstance(simple_result, dict)
+                            and "output" in simple_result
+                        ):
+                            simple_response = simple_result["output"]
+                        else:
+                            simple_response = str(simple_result)
+
+                        if len(simple_response) > 100:
+                            return simple_response
+                        else:
+                            return f"Tool execution started but final analysis incomplete. Please try again."
+                    except Exception as e2:
+                        return f"Tool execution started but final analysis failed: {str(e2)}"
+
+                # Look for the final answer section
+                if "Final Answer:" in final_response:
+                    # Extract everything after "Final Answer:"
+                    final_answer = final_response.split("Final Answer:")[-1].strip()
+                    return final_answer
+                elif "Thought:" in final_response and "Action:" in final_response:
+                    # If it contains thought process, try to extract the final analysis
+                    # Look for the last meaningful paragraph
+                    lines = final_response.split("\n")
+                    final_lines = []
+                    for line in reversed(lines):
+                        if (
+                            line.strip()
+                            and not line.startswith("Thought:")
+                            and not line.startswith("Action:")
+                            and not line.startswith("Observation:")
+                        ):
+                            final_lines.insert(0, line)
+                        elif line.strip() and (
+                            "Based on" in line
+                            or "Recommendation:" in line
+                            or "Conclusion:" in line
+                        ):
+                            final_lines.insert(0, line)
+                    if final_lines:
+                        return "\n".join(final_lines)
+                    else:
+                        return final_response
+                else:
+                    # Always return a string as a fallback
+                    return str(final_response)
+            except Exception as e:
+                st.error(f"❌ Error during agent execution: {str(e)}")
+                st.error(f"Error type: {type(e).__name__}")
+                import traceback
+
+                st.error(f"Full traceback: {traceback.format_exc()}")
+                # Log to console
+                print(f"❌ MCP Agent Execution Error: {str(e)}")
+                print(f"Error type: {type(e).__name__}")
+                print(f"Full traceback: {traceback.format_exc()}")
+
+                # Check if it's a TaskGroup error
+                if "TaskGroup" in str(e):
+                    st.error(
+                        "❌ TaskGroup error - this might be due to MCP server connection issues"
+                    )
+                    st.info("🔄 Trying to restart MCP agent...")
+                    # Clear the agent and try to reinitialize
+                    if "mcp_agent" in st.session_state:
+                        del st.session_state.mcp_agent
+                    return "Please try again - MCP agent will be reinitialized"
+                else:
+                    # Try a different approach - use the agent's available methods
+                    st.info("🔄 Trying alternative execution method...")
+                    try:
+                        # Try using the agent's available methods
+                        if hasattr(agent, "arun"):
+                            result = await agent.arun(full_query)
+                        elif hasattr(agent, "run"):
+                            result = await agent.run(
+                                full_query
+                            )  # Always await async methods
+                        else:
+                            result = "Agent has no available execution methods"
+                        return result
+                    except Exception as e2:
+                        st.error(f"❌ Alternative execution also failed: {str(e2)}")
+                        st.error(f"Error type: {type(e2).__name__}")
+                        import traceback
+
+                        st.error(f"Full traceback: {traceback.format_exc()}")
+                        # Log to console
+                        print(f"❌ MCP Alternative Execution Error: {str(e2)}")
+                        print(f"Error type: {type(e2).__name__}")
+                        print(f"Full traceback: {traceback.format_exc()}")
+                        return f"Error: {str(e2)}"
+
+    except Exception as e:
+        st.error(f"❌ Error running MCP agent: {e}")
+        return f"Error: {e}"
 
 
 @st.cache_data(ttl=1800)  # Cache for 30 minutes
@@ -1357,14 +1442,62 @@ def main():
         "Get comprehensive financial analysis and insights for your selected stocks."
     )
 
-    # Initialize resource monitoring
-    if RESOURCE_MONITORING_AVAILABLE:
-        if "resource_monitoring_started" not in st.session_state:
-            start_resource_monitoring()
-            st.session_state.resource_monitoring_started = True
+    # Initialize MCP client and tools silently
+    try:
+        # Initialize MCP client with proper configuration
+        if MultiServerMCPClient is None:
+            st.error(
+                "❌ MultiServerMCPClient not available. Please install langchain-mcp-adapters"
+            )
+            st.stop()
 
-    # Initialize tools
-    initialize_tools()
+        try:
+            # Pass servers configuration as positional argument
+            client = MultiServerMCPClient(
+                {
+                    "news_server": {
+                        "url": "http://localhost:8001/mcp",
+                        "transport": "streamable_http",
+                    },
+                    "stock_server": {
+                        "url": "http://localhost:8002/mcp",
+                        "transport": "streamable_http",
+                    },
+                }
+            )
+        except Exception as e:
+            # Try with different transport type
+            try:
+                client = MultiServerMCPClient(
+                    {
+                        "news_server": {
+                            "url": "http://localhost:8001/mcp",
+                            "transport": "http",
+                        },
+                        "stock_server": {
+                            "url": "http://localhost:8002/mcp",
+                            "transport": "http",
+                        },
+                    }
+                )
+            except Exception as e2:
+                st.error(f"❌ Failed to initialize MCP client: {str(e2)}")
+                st.stop()
+
+        # Get tools from MCP servers
+        tools = asyncio.run(client.get_tools())
+
+        # Create model with proper configuration
+        model = ChatGroq(model=model_name, temperature=0.1, max_tokens=4096)
+
+        # Store tools and model in session state for later use
+        st.session_state.mcp_tools = tools
+        st.session_state.mcp_model = model
+        st.session_state.mcp_client = client
+
+    except Exception as e:
+        st.error(f"❌ Failed to initialize MCP client: {str(e)}")
+        st.stop()
 
     # Test server availability only once on startup
     if "servers_tested" not in st.session_state:
@@ -1504,29 +1637,50 @@ def main():
             else:
                 st.markdown(
                     f"""
-                <div style=" padding: 10px; border-radius: 10px; margin: 5px 0;">
+                <div style="background-color: #f5f5f5; padding: 10px; border-radius: 10px; margin: 5px 0; border: 1px solid #e0e0e0;">
                     <strong>Agent:</strong>
                 </div>
                 """,
                     unsafe_allow_html=True,
                 )
-                # Render the content as markdown for proper formatting
-                st.markdown(message["content"])
+                # Render the content as markdown for proper formatting with controlled text size
+                st.markdown(
+                    f"""
+                <div style="font-size: 13px; line-height: 1.4; padding: 12px; border-radius: 8px; margin: 5px 0; border-left: 4px solid #007bff; max-height: 400px; overflow-y: auto;"
+                """,
+                    unsafe_allow_html=True,
+                )
+                # Clean up the content to remove raw markdown syntax
+                cleaned_content = (
+                    message["content"].replace("\\n", "\n").replace("\\'", "'")
+                )
+                st.markdown(cleaned_content)
+                st.markdown("</div>", unsafe_allow_html=True)
 
         # Chat input with proper loading state
         if prompt := st.chat_input(f"Ask about {selected_ticker}...", key="chat_input"):
-            # Track streamlit request
-            if RESOURCE_MONITORING_AVAILABLE:
-                resource_monitor.increment_streamlit_requests()
 
             # Add user message to chat history
             st.session_state.messages.append({"role": "user", "content": prompt})
 
             # Display assistant response with spinner above input
             with st.spinner("🤖 Analyzing your request..."):
-                response = asyncio.run(run_agent(prompt, selected_ticker))
+                response = asyncio.run(run_agent_with_mcp(prompt, selected_ticker))
+
+                # Ensure only a string is appended to chat history
+                if isinstance(response, dict) and "content" in response:
+                    clean_response = response["content"]
+                elif (
+                    isinstance(response, list)
+                    and len(response) > 0
+                    and "content" in response[-1]
+                ):
+                    clean_response = response[-1]["content"]
+                else:
+                    clean_response = str(response)
+
                 st.session_state.messages.append(
-                    {"role": "assistant", "content": response}
+                    {"role": "assistant", "content": clean_response}
                 )
 
             # Rerun to display the new message - the chart and news are cached in session state
