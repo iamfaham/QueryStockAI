@@ -2,8 +2,6 @@ from mcp.server.fastmcp import FastMCP
 import gnews
 from bs4 import BeautifulSoup
 import re
-
-# Initialize the MCP Server
 import os
 
 port = int(os.environ.get("PORT", "8002"))

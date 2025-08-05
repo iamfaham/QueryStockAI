@@ -1456,11 +1456,11 @@ def main():
             client = MultiServerMCPClient(
                 {
                     "news_server": {
-                        "url": "http://localhost:8001/mcp",
+                        "url": "http://localhost:8002/mcp",
                         "transport": "streamable_http",
                     },
                     "stock_server": {
-                        "url": "http://localhost:8002/mcp",
+                        "url": "http://localhost:8001/mcp",
                         "transport": "streamable_http",
                     },
                 }
@@ -1471,11 +1471,11 @@ def main():
                 client = MultiServerMCPClient(
                     {
                         "news_server": {
-                            "url": "http://localhost:8001/mcp",
+                            "url": "http://localhost:8002/mcp",
                             "transport": "http",
                         },
                         "stock_server": {
-                            "url": "http://localhost:8002/mcp",
+                            "url": "http://localhost:8001/mcp",
                             "transport": "http",
                         },
                     }
