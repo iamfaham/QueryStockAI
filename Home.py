@@ -8,7 +8,6 @@ import time
 from datetime import timedelta
 import gnews
 from bs4 import BeautifulSoup
-import importlib.util
 import requests
 import holidays
 import pandas as pd
@@ -21,7 +20,6 @@ from sklearn.preprocessing import StandardScaler
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from langchain_groq import ChatGroq
-
 
 # Load environment variables
 load_dotenv()
@@ -959,53 +957,162 @@ Question: {user_query} for {selected_ticker}"""
                     {"messages": [{"role": "user", "content": full_query}]}
                 )
 
-                # Extract the final answer from the result
-                if isinstance(result, dict) and "output" in result:
-                    final_response = result["output"]
-                elif isinstance(result, str):
-                    final_response = result
-                else:
-                    final_response = str(result)
-
                 # Debug: Print the raw result to see what we're getting
                 print("🔍 Raw result type:", type(result))
                 print("🔍 Raw result:", result)
 
-                # Clean up the final response to remove escaped characters
-                final_response = (
-                    final_response.replace("\\n", "\n")
-                    .replace("\\'", "'")
-                    .replace('\\"', '"')
-                )
+                # Try to extract AIMessages from structured data first
+                final_response = ""
+                if isinstance(result, dict) and "messages" in result:
+                    # Work with structured data directly
+                    messages = result["messages"]
+                    print(f"🔍 Found {len(messages)} messages in structured data")
 
-                # Try to extract the final analysis more simply
-                # First, try to get the last meaningful content
-                if "AIMessage" in final_response:
-                    # Look for the last AIMessage with content
-                    ai_messages = re.findall(
-                        r'AIMessage\(content="([^"]*)"', final_response, re.DOTALL
-                    )
-                    if not ai_messages:
-                        # Try single quotes
-                        ai_messages = re.findall(
-                            r"AIMessage\(content='([^']*)'", final_response, re.DOTALL
-                        )
+                    # Filter for AIMessage instances
+                    ai_messages = []
+                    for msg in messages:
+                        if (
+                            hasattr(msg, "__class__")
+                            and msg.__class__.__name__ == "AIMessage"
+                        ):
+                            ai_messages.append(msg)
+                        elif isinstance(msg, dict) and msg.get("type") == "AIMessage":
+                            ai_messages.append(msg)
 
-                    if ai_messages:
-                        print(f"🔍 Found {len(ai_messages)} AIMessages")
-                        for i, msg in enumerate(ai_messages):
-                            print(f"🔍 Message {i+1} length: {len(msg.strip())}")
-                            print(f"🔍 Message {i+1} preview: {msg.strip()[:100]}...")
-                            print(f"🔍 Message {i+1} starts with: {msg.strip()[:20]}")
+                    print(f"🔍 Found {len(ai_messages)} AIMessages in structured data")
 
-                        # Always get the last AIMessage which contains the complete analysis
-                        # The last AIMessage is the final analysis, not the tool call
-                        final_response = ai_messages[-1].strip()
-                        print(f"🔍 Selected message {len(ai_messages)} (the last one)")
+                    if len(ai_messages) >= 2:
+                        # Get the second AIMessage (comprehensive analysis)
+                        second_ai_message = ai_messages[1]
+                        if hasattr(second_ai_message, "content"):
+                            final_response = second_ai_message.content
+                        elif isinstance(second_ai_message, dict):
+                            final_response = second_ai_message.get("content", "")
+                        print(f"🔍 Selected message 2 (the comprehensive analysis)")
+                        print(f"🔍 Selected message starts with: {final_response[:50]}")
+                    elif len(ai_messages) == 1:
+                        # Fallback to first message if only one found
+                        first_ai_message = ai_messages[0]
+                        if hasattr(first_ai_message, "content"):
+                            final_response = first_ai_message.content
+                        elif isinstance(first_ai_message, dict):
+                            final_response = first_ai_message.get("content", "")
+                        print(f"🔍 Selected message 1 (only one found)")
                         print(f"🔍 Selected message starts with: {final_response[:50]}")
                     else:
-                        # If no AIMessage found, try to extract from the raw response
-                        final_response = final_response.strip()
+                        # Fallback to string processing if no structured AIMessages found
+                        if isinstance(result, dict) and "output" in result:
+                            final_response = result["output"]
+                        elif isinstance(result, str):
+                            final_response = result
+                        else:
+                            final_response = str(result)
+
+                        # Clean up the final response to remove escaped characters
+                        final_response = (
+                            final_response.replace("\\n", "\n")
+                            .replace("\\'", "'")
+                            .replace('\\"', '"')
+                        )
+
+                        # Try regex extraction as fallback
+                        if "AIMessage" in final_response:
+                            # Look for AIMessages in JSON format - multiple patterns to catch different formats
+                            ai_messages = []
+
+                            # Pattern 1: AIMessage with content in double quotes
+                            ai_messages.extend(
+                                re.findall(
+                                    r'AIMessage\(content="([^"]*)"',
+                                    final_response,
+                                    re.DOTALL,
+                                )
+                            )
+
+                            # Pattern 2: AIMessage with content in single quotes
+                            if not ai_messages:
+                                ai_messages.extend(
+                                    re.findall(
+                                        r"AIMessage\(content='([^']*)'",
+                                        final_response,
+                                        re.DOTALL,
+                                    )
+                                )
+
+                            # Pattern 3: AIMessage in JSON format with "content" field
+                            if not ai_messages:
+                                ai_messages.extend(
+                                    re.findall(
+                                        r'"content":\s*"([^"]*)"',
+                                        final_response,
+                                        re.DOTALL,
+                                    )
+                                )
+
+                            # Pattern 4: AIMessage in JSON format with 'content' field
+                            if not ai_messages:
+                                ai_messages.extend(
+                                    re.findall(
+                                        r"'content':\s*'([^']*)'",
+                                        final_response,
+                                        re.DOTALL,
+                                    )
+                                )
+
+                            if ai_messages:
+                                print(
+                                    f"🔍 Found {len(ai_messages)} AIMessages via regex"
+                                )
+                                for i, msg in enumerate(ai_messages):
+                                    print(
+                                        f"🔍 Message {i+1} length: {len(msg.strip())}"
+                                    )
+                                    print(
+                                        f"🔍 Message {i+1} preview: {msg.strip()[:100]}..."
+                                    )
+                                    print(
+                                        f"🔍 Message {i+1} starts with: {msg.strip()[:20]}"
+                                    )
+
+                                # Select the second AIMessage (index 1) which contains the comprehensive analysis
+                                # The first AIMessage is usually just the tool-calling message
+                                if len(ai_messages) >= 2:
+                                    final_response = ai_messages[
+                                        1
+                                    ].strip()  # Get the 2nd message
+                                    print(
+                                        f"🔍 Selected message 2 (the comprehensive analysis)"
+                                    )
+                                    print(
+                                        f"🔍 Selected message starts with: {final_response[:50]}"
+                                    )
+                                else:
+                                    # Fallback to last message if only one found
+                                    final_response = ai_messages[-1].strip()
+                                    print(
+                                        f"🔍 Selected message {len(ai_messages)} (the last one)"
+                                    )
+                                    print(
+                                        f"🔍 Selected message starts with: {final_response[:50]}"
+                                    )
+                            else:
+                                # If no AIMessage found, try to extract from the raw response
+                                final_response = final_response.strip()
+                else:
+                    # Fallback for non-structured data
+                    if isinstance(result, dict) and "output" in result:
+                        final_response = result["output"]
+                    elif isinstance(result, str):
+                        final_response = result
+                    else:
+                        final_response = str(result)
+
+                    # Clean up the final response to remove escaped characters
+                    final_response = (
+                        final_response.replace("\\n", "\n")
+                        .replace("\\'", "'")
+                        .replace('\\"', '"')
+                    )
 
                 # Remove any remaining tool call artifacts
                 final_response = re.sub(r"<\|.*?\|>", "", final_response)
