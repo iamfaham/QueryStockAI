@@ -1368,6 +1368,10 @@ def main():
             if key.startswith("chart_") or key.startswith("news_"):
                 del st.session_state[key]
 
+        # Clear chat history when ticker changes
+        if "messages" in st.session_state:
+            del st.session_state.messages
+
     # Update current ticker
     if selected_ticker:
         st.session_state.current_ticker = selected_ticker
