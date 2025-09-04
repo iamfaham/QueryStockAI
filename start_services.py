@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Startup script to run all services on Railway deployment.
+Startup script to run all services on Hugging Face Spaces deployment.
 This script launches:
-1. Streamlit app on $PORT (main port)
+1. Streamlit app on $PORT (main port, 7860 for HF Spaces)
 2. MCP Stock Server on $PORT + 1
 3. MCP News Server on $PORT + 2
 """
@@ -17,8 +17,8 @@ from pathlib import Path
 
 
 def get_port():
-    """Get the main port from Railway environment."""
-    port = os.environ.get("PORT", "8501")
+    """Get the main port from environment (Hugging Face Spaces uses 7860)."""
+    port = os.environ.get("PORT", "7860")
     return int(port)
 
 
@@ -91,7 +91,7 @@ def main():
             print(f"❌ Error: {file} not found!")
             sys.exit(1)
 
-    # Update MCP server URLs in Home.py for Railway deployment
+    # Update MCP server URLs in Home.py for Hugging Face Spaces deployment
     try:
         print("🔄 Updating MCP server URLs...")
         subprocess.run([sys.executable, "update_mcp_urls.py"], check=True)

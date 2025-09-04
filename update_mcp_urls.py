@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to update MCP server URLs for Railway deployment.
+Script to update MCP server URLs for Hugging Face Spaces deployment.
 This script modifies the MCP client configuration in Home.py to use the correct ports.
 """
 
@@ -9,13 +9,13 @@ import re
 
 
 def get_port():
-    """Get the main port from Railway environment."""
-    port = os.environ.get("PORT", "8501")
+    """Get the main port from environment (Hugging Face Spaces uses 7860)."""
+    port = os.environ.get("PORT", "7860")
     return int(port)
 
 
 def update_home_py():
-    """Update Home.py to use correct MCP server URLs for Railway deployment."""
+    """Update Home.py to use correct MCP server URLs for Hugging Face Spaces deployment."""
     port = get_port()
 
     # Calculate the ports for MCP servers

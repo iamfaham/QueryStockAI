@@ -1,3 +1,14 @@
+---
+title: QueryStockAI
+emoji: 📈
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+license: mit
+short_description: AI-powered financial analysis and trading assistant
+---
+
 # QueryStockAI
 
 A comprehensive financial analysis tool that provides stock data, news analysis, and AI-powered insights through an interactive Streamlit web interface. Features advanced machine learning-based stock price predictions using Ridge Regression with comprehensive technical indicators and an AI agent which answers user's queries based on stock dayta and news sentiment.
