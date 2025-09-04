@@ -69,8 +69,8 @@ A comprehensive financial analysis tool that provides stock data, news analysis,
 2. **Create a `.env` file** with your API keys:
 
    ```
-   OPENROUTER_API_KEY="your_openrouter_api_key_here"
-   MODEL="mistralai/mistral-small-3.2-24b-instruct:free"      # or any model of your choice
+   GROQ_API_KEY="your_groq_api_key_here"
+   MODEL="moonshotai/kimi-k2-instruct"      # or any model of your choice
    ```
 
 3. **Run the Streamlit app**:
